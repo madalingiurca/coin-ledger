@@ -162,7 +162,7 @@ Format notes, from the October 2026 exports:
   (`01 octombrie 2026`, type, amount) followed by `Key:Value` detail rows. Pages differ in
   column count and the amount sits one column left of its header, so the Debit/Credit
   columns are found again at every page header. Amounts are `1.384,95`. The counterparty
-  is the card `Terminal` without its country and city, and without the store number,
+  is the card terminal (`Terminal`, or `Tranzactie la` from November 2026) without its country and city, and without the store number,
   booking reference or order number that would make one shop many ("MOL 91022", "BOLT.EUO2601010001"),
   else `Beneficiar` / `Ordonator`, else the transaction type; Round Ups are labelled "Round Up"
   and cash withdrawals "Cash withdrawal". The `.xls` export is the

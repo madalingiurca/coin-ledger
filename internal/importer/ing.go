@@ -238,7 +238,7 @@ func ingSide(i, debitCol, creditCol int) (credit, ok bool) {
 func ingDetailKey(k string) bool {
 	switch tidy(k) {
 	case "Numar card", "Data autorizarii", "Numar autorizare", "In contul", "Din contul",
-		"Platita la", "Suma transmisa spre decontare", "Rata ING", "Cod Fiscal Platitor":
+		"Platita la", "Tranzactie la", "Suma transmisa spre decontare", "Rata ING", "Cod Fiscal Platitor":
 		return true
 	}
 	return false
@@ -265,7 +265,12 @@ func ingLabel(r *ingRow) string {
 	if r.typ == "Retragere numerar" {
 		return "Cash withdrawal" // the terminal is the ATM, not a payee
 	}
-	if t := r.detail("Terminal"); t != "" {
+	// The card terminal: "Terminal" up to October 2026, "Tranzactie la" after.
+	t := r.detail("Terminal")
+	if t == "" {
+		t = r.detail("Tranzactie la")
+	}
+	if t != "" {
 		if m := ingCity.FindStringSubmatch(t); m != nil {
 			t = m[1]
 		}

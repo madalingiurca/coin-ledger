@@ -288,3 +288,21 @@ func TestShopName(t *testing.T) {
 		}
 	}
 }
+
+// From November 2026 ING names the card terminal "Tranzactie la".
+func TestINGTranzactieLa(t *testing.T) {
+	st := load(t, "ing-nov.csv")
+	in, out := model.Income, model.Expense
+	check(t, st.Txns, []want{
+		{"2026-11-01", out, 32081, "MOL"},
+		{"2026-11-02", out, 498, "Round Up"},
+		{"2026-11-02", in, 2192, "EXEMPLU SHOP"},
+		{"2026-11-05", out, 10000, "Revolut**9999*"},
+	})
+	if !st.Check.Done || !st.Check.OK {
+		t.Errorf("check = %+v", st.Check)
+	}
+	if c, _ := model.NewRules().CategoryFor(st.Txns[3].Payee); c != model.Transfers {
+		t.Errorf("the card top-up to Revolut is filed under %q", c)
+	}
+}
