@@ -96,7 +96,13 @@ func (s *Store) Save(m *model.Month) error {
 	}
 	data = append(data, '\n')
 
-	tmp, err := os.CreateTemp(s.dir, "."+m.Key.String()+"-*.tmp")
+	return s.writeAtomic(m.Key.String(), s.Path(m.Key), data)
+}
+
+// writeAtomic replaces path with data by way of a temporary file in the same
+// directory. name is what error messages call the thing being written.
+func (s *Store) writeAtomic(name, path string, data []byte) error {
+	tmp, err := os.CreateTemp(s.dir, "."+name+"-*.tmp")
 	if err != nil {
 		return fmt.Errorf("cannot write in %s: %w", s.dir, err)
 	}
@@ -105,17 +111,17 @@ func (s *Store) Save(m *model.Month) error {
 
 	if _, err := tmp.Write(data); err != nil {
 		tmp.Close()
-		return fmt.Errorf("writing %s: %w", m.Key, err)
+		return fmt.Errorf("writing %s: %w", name, err)
 	}
 	if err := tmp.Sync(); err != nil {
 		tmp.Close()
-		return fmt.Errorf("flushing %s: %w", m.Key, err)
+		return fmt.Errorf("flushing %s: %w", name, err)
 	}
 	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("closing %s: %w", m.Key, err)
+		return fmt.Errorf("closing %s: %w", name, err)
 	}
-	if err := os.Rename(tmpName, s.Path(m.Key)); err != nil {
-		return fmt.Errorf("saving %s: %w", m.Key, err)
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("saving %s: %w", name, err)
 	}
 	return nil
 }
