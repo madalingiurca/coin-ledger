@@ -151,6 +151,9 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "h":
 		m.openHistory()
 		return m, nil
+	case "I":
+		m.openImport()
+		return m, nil
 	}
 
 	if m.dash.loadErr != nil {
@@ -299,7 +302,7 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 
 func (m Model) monthHints() []hint {
 	if m.dash.loadErr != nil {
-		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("q", "quit")}
+		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit")}
 	}
 	return []hint{
 		keyHint("a", "add"),
@@ -308,6 +311,7 @@ func (m Model) monthHints() []hint {
 		keyHint("r", "recurring"),
 		keyHint("c", "categorise"),
 		keyHint("u", "uncategorised"),
+		keyHint("I", "import"),
 		keyHint("←/→", "month"),
 		keyHint("h", "history"),
 		keyHint("?", "help"),

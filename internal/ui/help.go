@@ -30,6 +30,7 @@ func (m Model) helpView(cw int) string {
 		[2]string{"← →", "previous / next month"},
 		[2]string{"t", "jump back to this month"},
 		[2]string{"h", "history"},
+		[2]string{"I", "import a bank statement (ING or Revolut CSV)"},
 	)
 	section("ANYWHERE",
 		[2]string{"?", "this list"},

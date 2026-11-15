@@ -19,6 +19,7 @@ const (
 	screenMonth screen = iota
 	screenHistory
 	screenPayees
+	screenImport
 )
 
 // Model is the whole application state.
@@ -40,6 +41,7 @@ type Model struct {
 	dash    dash
 	hist    hist
 	payees  payees
+	imp     *importState
 	form    *formState
 	cat     *catState
 	confirm *confirmState
@@ -123,6 +125,8 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.historyKey(key)
 	case screenPayees:
 		return m.payeesKey(key)
+	case screenImport:
+		return m.importKey(key)
 	}
 	return m.monthKey(key)
 }
@@ -149,6 +153,12 @@ func (m Model) render() string {
 		frames = []string{
 			t.Box.Width(cw + boxChrome).Render(m.historyView(cw)),
 			footer(t, cw+boxChrome, m.historyHints()...),
+		}
+	case m.screen == screenImport:
+		below := footer(t, cw+boxChrome, m.importHints()...)
+		frames = []string{
+			t.Box.Width(cw + boxChrome).Render(m.importView(cw, m.roomAbove(below))),
+			below,
 		}
 	case m.screen == screenPayees:
 		var below string
