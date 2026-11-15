@@ -1,23 +1,26 @@
 # budget — monthly budget TUI
 
-A single-binary, full-screen terminal app. You open it, set your income and your big
-expenses for the month, and it tells you what's left. Later you reopen it to check where
-you stand, and browse how past months went.
+A single-binary, full-screen terminal app. You plan the month (income, the big expenses,
+a budget per category), import your bank statements as the month goes, and it shows
+what you have spent against what you planned and what is projected to be left.
 
-## Decisions (locked)
+## Decisions
 
 | Area | Choice |
 |---|---|
 | Stack | Go + Bubble Tea v2 / Bubbles v2 / Lipgloss v2 |
-| Storage | One JSON file per month under `~/.budget/` |
+| Storage | One JSON file per month under `~/.budget/`, plus `categories.json` |
 | Interface | Pure TUI. No subcommands, no flags. |
-| Model | Income lines + expense lines. Items flagged *recurring* carry into new months. |
-| Metric | Plan only: `income − planned expenses = left`. No paid/unpaid tracking. |
+| Model | Income and expense entries. Typed entries are the **forecast**; imported ones the **actual**. |
+| Categories | Expenses only. Payee rules file bank rows automatically. |
+| Import | ING "Extras de cont" CSV and Revolut account statement CSV, picked in an in-app file browser |
+| Metric | Spent so far, and projected `income − expenses = left` |
 | History | Month list + leftover trend |
-| Currency | RON, formatted `12.500,00 lei` |
+| Currency | RON only, formatted `12.500,00 lei` |
 
-Explicitly **out of scope**: categories, savings goals, leftover rollover between months,
-transaction-level tracking, multi-currency.
+Out of scope: savings goals, leftover rollover between months, multi-currency (Revolut
+rows in other currencies are left out; converting RON counts as spending it), budgets
+per category other than as forecast entries.
 
 ## Data
 
@@ -25,241 +28,195 @@ transaction-level tracking, multi-currency.
 
 ```
 ~/.budget/                 (override with BUDGET_HOME)
-  2026-07.json
-  2026-08.json
-  2026-09.json
+  2026-09.json             one file per month
+  2026-10.json
+  categories.json          categories, payee rules, forecast links
+  state.json               the last import folder; losing it costs nothing
 ```
 
-One file per month, named `YYYY-MM.json`. No index file, no database — the directory
-listing *is* the index. Readable, diffable, syncable via git or iCloud, trivial to back up.
+The directory listing is the index of months: no manifest to fall out of sync.
 
-### Shape
+### Month
 
 ```json
 {
   "version": 1,
-  "month": "2026-09",
+  "month": "2026-10",
   "income": [
-    { "id": "8f2a1c", "label": "Salary",   "amount": 12500.00, "recurring": true  },
-    { "id": "3b90de", "label": "Freelance","amount":  2000.00, "recurring": false }
+    { "id": "8f2a1c", "label": "Salary", "amount": 12500.00, "recurring": true }
   ],
   "expenses": [
-    { "id": "c41f77", "label": "Rent",          "amount": 2800.00, "recurring": true  },
-    { "id": "0d8ea2", "label": "Utilities",     "amount":  450.00, "recurring": true  },
-    { "id": "77b105", "label": "Car insurance", "amount": 1450.00, "recurring": false }
+    { "id": "c41f77", "label": "Groceries budget", "amount": 1500.00, "recurring": true,
+      "category": "Groceries" },
+    { "id": "0d8ea2", "label": "Mortgage", "amount": 2154.70, "recurring": true,
+      "category": "Loan", "planned": 2300.00,
+      "date": "2026-10-02", "payee": "RATA CREDIT", "source": "ing", "key": "a41c09e7d3b2f001" },
+    { "id": "77b105", "label": "Bolt", "amount": 27.00, "recurring": false,
+      "category": "Transport",
+      "date": "2026-10-05", "payee": "BOLT", "source": "revolut", "key": "5e1d7c0a9b3f2e44" }
   ],
-  "updated_at": "2026-09-01T10:14:22+03:00"
+  "skipped_keys": ["9c2b…"],
+  "updated_at": "2026-10-31T10:14:22+02:00"
 }
 ```
 
-Income and expenses are the same shape, so one entry type and one editor serve both.
-`version` exists so a future format change can migrate rather than guess.
+Every field after `recurring` is optional and left out when empty, so a hand-typed month
+reads as before.
+
+| Field | Meaning |
+|---|---|
+| `category` | Expense category; empty means uncategorised. |
+| `source` | `ing` or `revolut` on an imported (actual) entry; absent on a forecast. |
+| `date`, `payee`, `key` | The bank row: booking date, normalised payee rules match on, and a stable hash so a row imported twice is added once. |
+| `planned` | The forecast amount an actual replaced, kept so the difference shows. |
+| `skipped_keys` | Bank rows imported and then deleted, so re-importing does not bring them back. |
+
+### Categories file
+
+```json
+{
+  "version": 1,
+  "categories": ["Groceries", "Loan", "Savings", "Transfers", "Transport"],
+  "rules": [
+    { "match": "REVOLUT**",  "category": "Transfers" },
+    { "match": "TOP-UP BY",  "category": "Transfers" },
+    { "match": "BOLT",       "category": "Transport" },
+    { "match": "CARREFOUR",  "category": "Groceries" }
+  ],
+  "links": [{ "match": "RATA CREDIT", "label": "Mortgage" }]
+}
+```
+
+- A **rule** files an expense when its payee *contains* `match`; the longest match wins.
+  ING names every shop separately ("CARREFOUR LUJERULUI TABAC"), so one short rule covers
+  them all. A rule only ever fills an *empty* category: an expense filed by hand stays put.
+- A **link** remembers that rows from a payee replaced a forecast entry with that label,
+  so the next import proposes the same replacement whatever the amount.
+- **Transfers** is built in and never counted. Out of the box it catches money moving
+  between your own ING and Revolut accounts (the ING card top-up and the matching Revolut
+  `Top-up by` row). Round Ups and savings deposits *do* count: they arrive as "Round Up" or
+  the savings transfer, for you to file as Savings.
+
+A damaged categories file is reported and never written over; the app runs on the
+defaults in memory.
 
 ### Money
 
-Amounts are stored in the file as plain decimal numbers (readable), but **never held as
-`float64`**. On load they are decoded via `json.Number` and converted to `int64` bani; all
-arithmetic is integer. On save they're rendered back with exactly two decimals. This kills
-the classic `0.1 + 0.2` class of bug while keeping the file human-friendly.
-
-Input parsing is deliberately lenient — `2800`, `2.800`, `2800,50`, `2 800.50`, `2800 lei`
-all resolve to the same value. Display is always canonical: `2.800,50 lei`.
+Amounts are stored as plain decimals but **never held as `float64`**: they are decoded via
+`json.Number` into `int64` bani, and all arithmetic is integer. Typed input is lenient
+(`2800`, `2.800`, `2800,50`, `2 800.50`, `2800 lei`); bank files are parsed strictly, since
+a bank changing its format must fail loudly rather than be guessed at.
 
 ### Writes
 
-Every mutation saves immediately: write to `2026-09.json.tmp` in the same directory, then
-`os.Rename` over the target. Atomic, so an interrupted write can't corrupt a month. There
-is no save key and no dirty state — nothing to forget.
+Every change saves immediately through a temporary file renamed over the target, so an
+interrupted write cannot corrupt a month. A month file that cannot be parsed is shown
+read-only and never overwritten; imports and rule sweeps step around it.
 
-## Recurring items
+## Forecast and actual
 
-No separate template file. An entry simply carries a `recurring` flag.
+Typed entries are the plan; imported entries are what the bank reports. Totals lay one
+over the other:
 
-When you navigate to a month that has no file yet, the app finds the **most recent existing
-month before it** and seeds the new month with that month's recurring entries (fresh ids,
-same labels and amounts). Non-recurring entries are not carried.
+- **Each category counts the larger of its forecast and its actual.** Plan "Groceries 1.500"
+  and spend 1.230 and the month still expects 1.500; spend 1.700 and it counts 1.700. A plan
+  and the bank rows that fulfil it are never counted twice.
+- **Uncategorised forecast and actual add up**, because nothing ties them together.
+- **Income** works the same way as one group.
+- **Transfers** count for nothing.
 
-The consequence, which is the point: you mark Rent recurring once and it follows you
-forever. Change its amount in September and October inherits the new amount. Delete it in
-October because you moved out, and November never sees it again. The current month is
-always the template — there's no second place to keep in sync.
+So a month with no imports totals exactly its plan, and the header shows *spent so far*
+(actuals) above *left* (projected).
 
-The seeded month lives in memory only; it is written to disk on your **first edit**. So
-arrowing forward through months to peek doesn't litter `~/.budget` with empty files.
+When an imported row looks like a specific forecast entry (a remembered link, or the same
+amount) the import asks whether to **replace** it: the entry keeps its id, label, category
+and recurring flag, takes the bank's amount and date, and remembers `planned`. Or **keep
+both**, and the category's max rule still prevents double counting.
+
+## Recurring entries
+
+No separate template. When you open a month that has no file yet, the app finds the most
+recent readable month before it and seeds the new one with that month's recurring entries,
+as forecasts: a replaced entry carries its *planned* amount forward, not last month's bank
+figure, and no bank data is copied. The seeded month stays in memory until the first edit
+or import, so browsing ahead leaves no files.
+
+## Import
+
+1. `I` opens a file browser: folders, then CSV files newest first, starting in the folder
+   of the last import or `~/Downloads`.
+2. The bank is detected from the file's contents. The preview shows, per month, the income
+   and expenses to add, how many the rules file, how many are uncategorised, transfers,
+   rows already imported, and whether the file matches the bank's own balance (ING: opening
+   + transactions = closing; Revolut: the running balance on every row).
+3. If rows look like forecast entries, a step lists each pair to replace or keep both.
+4. Enter writes the months. The bank file is never copied; only date, amount, a tidied
+   counterparty name and the row key are kept. The account holder's name, ID number and
+   address that ING prints on every page are skipped.
+
+Format notes, from the October 2026 exports:
+
+- **ING CSV** is the printed statement poured into cells. A transaction is a start row
+  (`01 octombrie 2026`, type, amount) followed by `Key:Value` detail rows. Pages differ in
+  column count and the amount sits one column left of its header, so the Debit/Credit
+  columns are found again at every page header. Amounts are `1.384,95`. The counterparty
+  is the card `Terminal` without its country and city, else `Beneficiar` / `Ordonator`,
+  else the transaction type; Round Ups are labelled "Round Up". The `.xls` export is the
+  same layout in an xlsx and the PDF is layout text; neither is supported.
+- **Revolut CSV** is one row per transaction with a fixed header, ISO dates and signed
+  `-117.13` amounts. Only `COMPLETED` rows in RON are imported; the fee is part of the
+  cost; the booking date is the completed date. An export covers one currency account.
 
 ## Screens
 
-### 1. Dashboard (home)
+**Month** (home). Income, then expenses under collapsible category headers
+(`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. A month
+where nothing has a category is one plain list, as before. Forecast entries the bank has
+not reported yet are dimmed once a month has actuals; imported entries show their day, and
+a replaced one its planned amount. The list scrolls around the cursor, keeping the title
+and totals in place.
 
-```
-  ╭─ budget ─────────────────────────────── September 2026 ─╮
-  │                                                          │
-  │   INCOME                                   14.500,00 lei │
-  │     Salary                            ↻       12.500,00  │
-  │   › Freelance project                          2.000,00  │
-  │                                                          │
-  │   EXPENSES                                  6.750,00 lei │
-  │     Rent                              ↻        2.800,00  │
-  │     Utilities                         ↻          450,00  │
-  │     Car insurance                              1.450,00  │
-  │     Vacation deposit                           2.050,00  │
-  │                                                          │
-  │   ────────────────────────────────────────────────────   │
-  │   LEFT                                      7.750,00 lei │
-  │   ████████████████████░░░░░░░░░░░░░░░░  53% of income    │
-  ╰──────────────────────────────────────────────────────────╯
-   a add   e edit   d delete   r recurring   ←/→ month   h history   ? help   q quit
-```
+**Categorise** (`c` on an expense). Pick a category or type a new one. For an imported
+expense the dialog also offers to remember the payee: the match text starts as the whole
+payee and can be shortened, and with the box ticked every uncategorised expense from that
+payee, in every month, is filed too. Untick it to file just this one.
 
-One cursor moves through both sections (`↑`/`↓`, `j`/`k`, `g`/`G` for the ends).
-`↻` marks a recurring entry. An empty section still shows one selectable line,
-so `a` always knows which section it is adding to and there is no section picker
-to build — `i` and `x` also add income or an expense directly, from anywhere.
-`enter` edits, like `e`.
+**Uncategorised payees** (`u`). Every payee with uncategorised expenses, across all months,
+with count and total. `enter` gives the payee a category for good. `→` opens it to file its
+transactions one by one, for shops where one visit is fuel and the next is coffee.
 
-`←`/`→` step months (`[`/`]` and `p`/`n` do the same), and `t` jumps back to
-today. The footer wraps onto a second line rather than dropping hints, because
-the narrow terminals where hints get dropped are exactly the ones where `q quit`
-is hardest to guess.
-
-### 2. History
-
-```
-  ╭─ history ────────────────────────────────────────────────╮
-  │   MONTH        INCOME     EXPENSES         LEFT          │
-  │ › 2026-09   14.500,00     6.750,00     7.750,00 ████████ │
-  │   2026-08   12.500,00     9.100,00     3.400,00 ███      │
-  │   2026-07   12.500,00     5.200,00     7.300,00 ███████  │
-  │   2026-06   12.500,00    11.900,00       600,00 █        │
-  │   2026-05   12.500,00    14.000,00    −1.500,00 ▌over    │
-  │                                                          │
-  │   Average left over 5 months: 3.510,00 lei               │
-  ╰──────────────────────────────────────────────────────────╯
-   ↑/↓ select   enter open month   esc back   q quit
-```
-
-Bars are scaled to the largest absolute leftover in the window. A month in the
-red draws its bar in red and shows its amount in red too, rather than mirroring
-around a baseline: a centre line would halve the resolution of every bar to
-annotate the rare month, and the colour already carries the sign.
-
-`enter` opens the selected month. The view holds the last 24 months.
-
-### 3. Entry form (modal over dashboard)
-
-```
-      ╭─ Add expense ──────────────────────╮
-      │  Label   [ Car insurance         ] │
-      │  Amount  [ 1450                  ] │
-      │  [×] Recurring — carry to future   │
-      │                                    │
-      │  tab next · enter save · esc cancel│
-      ╰────────────────────────────────────╯
-```
-
-Same modal for add and edit. Invalid amounts block save with an inline message rather than
-an error screen. `space` toggles the checkbox.
-
-### 4. Delete confirmation & help
-
-Delete asks `Delete "Car insurance" (1.450,00 lei)?  y / n` in the footer — one keypress,
-no modal. `?` toggles a full-screen key reference.
+**Import** (`I`), described above. **History** (`h`): the last 24 months with projected
+leftover bars. **Form** (`a`, `i`, `x`, `e`): label, amount, category for expenses (`→`
+completes a known one), recurring. **Help** (`?`).
 
 ## Code layout
 
 ```
-montly-budget/
-  go.mod                      module github.com/madalingiurca/budget
-  main.go                     resolve BUDGET_HOME, open the store, run the program
-  DESIGN.md  README.md
-  internal/
-    money/
-      money.go                Amount (int64 bani): Parse, String, Lei, JSON
-      money_test.go
-    model/
-      model.go                Kind, Entry, Key, Month, totals, SeedFrom
-      model_test.go
-    store/
-      store.go                Load, Save (atomic), Keys, Get, Summaries
-      store_test.go           against t.TempDir()
-    ui/
-      app.go                  root model, screen routing, key dispatch, framing
-      month.go                the month screen and every mutation
-      form.go                 add/edit modal
-      confirm.go              delete prompt
-      history.go              month list and trend
-      help.go                 key reference
-      theme.go                every style, resolved for a light or dark terminal
-      layout.go               widths, truncation, wrapping, bars, footers
-      ui_test.go              the whole app driven headlessly, key by key
-      preview_test.go         prints each screen for eyeballing (not assertions)
+internal/
+  money/      Amount (int64 bani): Parse, String, Lei, JSON
+  model/      model.go   Entry, Month, totals, categories, forecast and actual, SeedFrom
+              rules.go   categories, payee rules, forecast links
+              match.go   forecast entries a bank row may fulfil
+  store/      store.go   month files: Load, Save (atomic), Keys, Get, Summaries
+              rules.go   categories.json, rule and rename sweeps, payee lists
+              state.go   state.json
+  importer/   importer.go, ing.go, revolut.go; testdata holds invented statements in the
+              real layouts
+  ui/         app.go routing and framing; month.go; form.go; categorise.go; payees.go;
+              importer.go; history.go; help.go; confirm.go; theme.go; layout.go
 ```
 
-The rule that keeps this maintainable: `internal/ui` may import `model`, `store`
-and `money`; nothing below `ui` ever imports Bubble Tea. The whole budget engine
-is testable without a terminal — and the UI turns out to be testable without one
-too, by feeding `tea.KeyPressMsg` values straight into `Update` and reading the
-rendered frame back.
+Nothing below `ui` imports Bubble Tea, and the UI itself is tested headlessly by feeding
+key presses into `Update` and reading the rendered frame (`go test ./...`).
+`go test ./internal/ui -run TestPreview -v` prints every screen for eyeballing.
 
-## Built
+## Edge cases
 
-All six steps are done; `go test ./...` is green.
-
-1. **Engine.** `money`, `model`, `store`, fully tested headless: lenient RON
-   parsing, exact integer arithmetic, atomic saves, month listing, seeding.
-2. **Month screen.** Income and expenses, totals, leftover, share-of-income bar.
-3. **Editing.** Add, edit, delete, toggle recurring, saved after every change.
-4. **Month navigation.** Lazy creation with recurring seeding, written on first edit.
-5. **History.** Month list, trend bars, average, `enter` to open a month.
-6. **Polish.** Help overlay, empty states, narrow-terminal handling, damaged-file
-   handling.
-
-### Running it
-
-```bash
-go run .
-```
-
-To keep it around:
-
-```bash
-go build -o ~/bin/budget .
-```
-
-It takes no arguments. `BUDGET_HOME` overrides where months are stored.
-
-## Edge cases the design has to answer
-
-- **First ever run** — dashboard shows `No income yet. Press a to add your first entry.`
-  rather than an empty frame.
-- **Zero income** — the percentage bar is hidden entirely; no division by zero.
-- **Negative left** — rendered red as `−1.500,00 lei · over budget`, and the bar flips.
-- **Corrupt month file** — an error banner naming the file, the month opens read-only, and
-  the app refuses to overwrite it. Bad JSON should never cost you the file.
-- **Narrow terminal** (< ~60 cols) — labels truncate with `…`, the bar drops out, the
-  footer collapses to `a e d r ? q`.
-- **Very long month history** — history view scrolls and the trend window caps at the last
-  24 months.
-
-## Decisions taken while building
-
-Four things the plan left open, resolved in the obvious direction. Say the word
-on any of them and they are small changes.
-
-- **`~/.budget` is the home**, overridable with `BUDGET_HOME`. Point that at an
-  iCloud or Dropbox folder to sync months between machines.
-- **A month is created only when you edit it**, so a month you opened but left
-  alone leaves no file and does not appear in history.
-- **A damaged earlier month does not block a new one.** When seeding, the store
-  walks back to the most recent month it can actually read and shows a warning
-  naming the one it skipped, rather than refusing to open the new month.
-- **Prose wraps, data truncates.** Explanations and errors break across lines;
-  labels and amounts get an ellipsis, so columns stay aligned.
-
-## Not built, by choice
-
-Categories, savings goals, leftover rollover, paid/unpaid tracking and
-multi-currency were all ruled out up front and nothing in the code anticipates
-them. The shape that would absorb most of them cheaply is `Entry` — it already
-carries an id, so an added field would not disturb existing files, and `Load`
-tolerates fields being absent.
+- **Importing the same file twice** adds nothing; an overlapping export adds only the new
+  rows. Two identical rows in one file (same shop, same amount, same day) stay two.
+- **A statement that does not reconcile** is flagged in red in the preview; you can still
+  import it.
+- **Damaged month or categories file**: shown, never overwritten, skipped by imports and
+  sweeps.
+- **First run, zero income, overspending, narrow terminals**: as before. Prose wraps, data
+  truncates, and the footer wraps rather than dropping hints.
