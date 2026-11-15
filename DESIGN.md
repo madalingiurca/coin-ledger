@@ -174,7 +174,7 @@ Format notes, from the October 2026 exports:
 ## Screens
 
 **Month** (home). Income, then expenses under collapsible category headers
-(`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. A month
+(`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and
 a replaced one its planned amount. The list scrolls around the cursor, keeping the title

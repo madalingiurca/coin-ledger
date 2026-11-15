@@ -3,6 +3,7 @@ package ui
 import (
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -370,21 +371,41 @@ func (m Model) monthView(cw, maxH int) string {
 		totals[c.Name] = c
 	}
 	rows := m.dash.rows()
+	days := m.dayBuckets()
 	for _, kind := range []model.Kind{model.Income, model.Expense} {
 		body = append(body, "", m.sectionHeader(kind, cw))
+		lastDay, lastCat := "\x00", "\x00"
 		for i, r := range rows {
 			if r.kind != kind {
 				continue
 			}
 			selected := i == m.dash.cursor
+			if r.header {
+				lastDay, lastCat = "\x00", r.cat
+				if selected {
+					cursorLine = len(body)
+				}
+				body = append(body, m.categoryLine(totals[r.cat], selected, cw))
+				continue
+			}
+			bucketed := false
+			if kind == model.Expense && r.index >= 0 {
+				e := m.dash.month.Expenses[r.index]
+				if days.used[e.Category] {
+					bucketed = true
+					if r.cat != lastCat {
+						lastDay, lastCat = "\x00", r.cat
+					}
+					if e.Date != lastDay {
+						lastDay = e.Date
+						body = append(body, m.dayLine(e, days, cw))
+					}
+				}
+			}
 			if selected {
 				cursorLine = len(body)
 			}
-			if r.header {
-				body = append(body, m.categoryLine(totals[r.cat], selected, cw))
-			} else {
-				body = append(body, m.entryLine(r, selected, cw))
-			}
+			body = append(body, m.entryLine(r, selected, bucketed, cw))
 		}
 	}
 
@@ -502,7 +523,44 @@ func (m Model) sectionHeader(kind model.Kind, cw int) string {
 	return t.Section.Render(padRight(name, cw-lipgloss.Width(total))) + t.Total.Render(total)
 }
 
-func (m Model) entryLine(r row, selected bool, cw int) string {
+// dayTotals is what the bank booked on each day within each expense category,
+// and which categories are laid out by day at all: those with a bank row.
+type dayTotals struct {
+	sum  map[string]money.Amount
+	used map[string]bool
+}
+
+func (m Model) dayBuckets() dayTotals {
+	d := dayTotals{sum: map[string]money.Amount{}, used: map[string]bool{}}
+	if m.dash.month == nil {
+		return d
+	}
+	for _, e := range m.dash.month.Expenses {
+		if len(e.Date) == len("2026-10-02") {
+			d.used[e.Category] = true
+			d.sum[e.Category+"|"+e.Date] += e.Amount
+		}
+	}
+	return d
+}
+
+// dayLine is the heading over the entries of one day, "Wed 04 Nov" and what
+// was spent that day; entries with no day, the plan, sit under "Planned".
+func (m Model) dayLine(e model.Entry, d dayTotals, cw int) string {
+	t := m.theme
+	name, right := "Planned", ""
+	if when, err := time.Parse("2006-01-02", e.Date); err == nil {
+		name = when.Format("Mon 02 Jan")
+		if e.Category != model.Transfers {
+			right = d.sum[e.Category+"|"+e.Date].String()
+		}
+	}
+	amtW, _ := entryColumns(cw)
+	right = padLeft(right, amtW+2)
+	return t.Section.Render("  "+padRight(truncate(name, max(1, cw-2-amtW-2)), max(1, cw-2-amtW-2))) + t.Muted.Render(right)
+}
+
+func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	t := m.theme
 	amtW, labelW := entryColumns(cw)
 
@@ -520,7 +578,10 @@ func (m Model) entryLine(r row, selected bool, cw int) string {
 		marker = " ↻"
 	}
 	text := e.Label
-	if len(e.Date) == len("2026-10-02") {
+	switch {
+	case bucketed:
+		text = "  " + text // under its day's heading
+	case len(e.Date) == len("2026-10-02"):
 		text = e.Date[8:] + " " + text // day of the month the bank booked it
 	}
 	if e.Planned > 0 && e.Planned != e.Amount {

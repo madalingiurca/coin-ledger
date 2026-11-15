@@ -71,7 +71,7 @@ func TestExpensesAreGroupedByCategory(t *testing.T) {
 		"▾ Uncategorised (1)",
 		"▾ Groceries (2)", "400,00 of 1.500,00",
 		"▾ Transfers (1)", "not counted 500,00",
-		"14 Lidl", "spent so far", "425,00 lei",
+		"Wed 14 Oct", "Lidl", "spent so far", "425,00 lei",
 	)
 	// Projected: groceries count their forecast, Bolt adds, the transfer does not.
 	mustContain(t, screen, "8.475,00 lei")
@@ -459,5 +459,33 @@ func TestDamagedCategoriesFileIsNotOverwritten(t *testing.T) {
 	// The entry itself is still filed; only the remembering is refused.
 	if got := m.dash.month.Expenses[0].Category; got != "Transport" {
 		t.Errorf("category = %q", got)
+	}
+}
+
+// Within a category, bank rows sit under a heading per day with that day's
+// total, and the plan under "Planned".
+func TestDaysAreBucketed(t *testing.T) {
+	mo := model.New(october)
+	plan := mo.Add(model.Expense, "Groceries budget", money.FromLei(500), true)
+	mo.SetCategory(plan, "Food")
+	for _, r := range []struct{ label, date string }{{"Lidl", "2026-10-11"}, {"Kifla", "2026-10-02"}, {"Penny", "2026-10-11"}} {
+		mo.AddImported(model.Expense, model.Imported{Label: r.label, Amount: money.FromLei(10), Date: r.date,
+			Payee: strings.ToUpper(r.label), Source: model.SourceING, Key: r.label, Category: "Food"})
+	}
+	s := testStore(t)
+	saveMonth(t, s, mo)
+	screen := plain(appOn(t, s, october, testW, testH))
+	at := func(sub string) int { return strings.Index(screen, sub) }
+	order := []string{"Planned", "Groceries budget", "Fri 02 Oct", "Kifla", "Sun 11 Oct", "Lidl", "Penny"}
+	last := -1
+	for _, sub := range order {
+		i := at(sub)
+		if i <= last {
+			t.Fatalf("%q is out of place in:\n%s", sub, screen)
+		}
+		last = i
+	}
+	if strings.Count(screen, "Sun 11 Oct") != 1 || !strings.Contains(screen, "20,00") {
+		t.Errorf("the day appears once with its total 20,00:\n%s", screen)
 	}
 }
