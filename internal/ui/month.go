@@ -21,14 +21,31 @@ type dash struct {
 	// is shown read-only and is never written over.
 	loadErr error
 	cursor  int
+	// collapsed names the expense categories whose entries are folded away.
+	// It belongs to the app rather than the month, so a folded category stays
+	// folded while paging through months.
+	collapsed map[string]bool
 }
 
 // row addresses one selectable line. index is -1 for the placeholder line an
 // empty section still shows, so every section can be the target of "add" and
-// the cursor is never homeless.
+// the cursor is never homeless. A header row stands for a whole expense
+// category; cat names the category of a header or of an expense entry.
 type row struct {
-	kind  model.Kind
-	index int
+	kind   model.Kind
+	index  int
+	header bool
+	cat    string
+}
+
+// grouped reports whether expenses are shown under category headers. A month
+// where nothing has a category yet reads as one plain list.
+func (d dash) grouped() bool {
+	if d.month == nil {
+		return false
+	}
+	cats := d.month.Categories()
+	return len(cats) > 1 || (len(cats) == 1 && cats[0].Name != "")
 }
 
 func (d dash) rows() []row {
@@ -36,14 +53,31 @@ func (d dash) rows() []row {
 		return nil
 	}
 	var out []row
-	for _, kind := range []model.Kind{model.Income, model.Expense} {
-		entries := d.month.Entries(kind)
-		if len(entries) == 0 {
-			out = append(out, row{kind: kind, index: -1})
-			continue
+	if len(d.month.Income) == 0 {
+		out = append(out, row{kind: model.Income, index: -1})
+	}
+	for i := range d.month.Income {
+		out = append(out, row{kind: model.Income, index: i})
+	}
+
+	switch {
+	case len(d.month.Expenses) == 0:
+		out = append(out, row{kind: model.Expense, index: -1})
+	case !d.grouped():
+		for i := range d.month.Expenses {
+			out = append(out, row{kind: model.Expense, index: i})
 		}
-		for i := range entries {
-			out = append(out, row{kind: kind, index: i})
+	default:
+		for _, c := range d.month.Categories() {
+			out = append(out, row{kind: model.Expense, index: -1, header: true, cat: c.Name})
+			if d.collapsed[c.Name] {
+				continue
+			}
+			for i, e := range d.month.Expenses {
+				if e.Category == c.Name {
+					out = append(out, row{kind: model.Expense, index: i, cat: c.Name})
+				}
+			}
 		}
 	}
 	return out
@@ -60,7 +94,7 @@ func (d dash) current() (row, bool) {
 // currentEntry returns the selected entry, if the cursor is on a real one.
 func (d dash) currentEntry() (model.Kind, model.Entry, bool) {
 	r, ok := d.current()
-	if !ok || r.index < 0 {
+	if !ok || r.index < 0 || r.header {
 		return 0, model.Entry{}, false
 	}
 	return r.kind, d.month.Entries(r.kind)[r.index], true
@@ -79,10 +113,11 @@ func (d *dash) clamp() {
 func (m *Model) openMonth(k model.Key) {
 	res, err := m.store.Get(k)
 	if err != nil {
-		m.dash = dash{key: k, loadErr: err}
+		m.dash = dash{key: k, loadErr: err, collapsed: m.collapsed}
 		return
 	}
 	m.dash = dash{
+		collapsed:  m.collapsed,
 		key:        k,
 		month:      res.Month,
 		onDisk:     res.OnDisk,
@@ -134,17 +169,38 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 
 	case "a":
 		if r, ok := m.dash.current(); ok {
-			m.form = newForm(m.theme, r.kind, nil)
+			// Adding from inside a category files the new expense there.
+			m.form = newForm(m.theme, r.kind, nil, r.cat, m.categoryNames())
 		}
 	case "i":
-		m.form = newForm(m.theme, model.Income, nil)
+		m.form = newForm(m.theme, model.Income, nil, "", nil)
 	case "x":
-		m.form = newForm(m.theme, model.Expense, nil)
+		m.form = newForm(m.theme, model.Expense, nil, "", m.categoryNames())
 
-	case "e", "enter":
-		if kind, entry, ok := m.dash.currentEntry(); ok {
-			m.form = newForm(m.theme, kind, &entry)
+	case "enter", "space", " ":
+		if r, ok := m.dash.current(); ok && r.header {
+			m.dash.collapsed[r.cat] = !m.dash.collapsed[r.cat]
+			return m, nil
 		}
+		if key != "enter" {
+			return m, nil
+		}
+		fallthrough
+	case "e":
+		if kind, entry, ok := m.dash.currentEntry(); ok {
+			m.form = newForm(m.theme, kind, &entry, entry.Category, m.categoryNames())
+		}
+	case "c":
+		kind, entry, ok := m.dash.currentEntry()
+		switch {
+		case !ok:
+		case kind == model.Income:
+			m.setStatus("Only expenses have categories")
+		default:
+			m.openCategorise(entry)
+		}
+	case "u":
+		m.openPayees()
 	case "d", "delete", "backspace":
 		if kind, entry, ok := m.dash.currentEntry(); ok {
 			m.confirm = &confirmState{kind: kind, id: entry.ID, label: entry.Label, amount: entry.Amount}
@@ -168,9 +224,18 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // commitForm applies an add or edit and saves.
-func (m *Model) commitForm(kind model.Kind, id, label string, amount money.Amount, recurring bool) {
+func (m *Model) commitForm(kind model.Kind, id, label string, amount money.Amount, recurring bool, category string) {
+	if kind == model.Expense {
+		category = m.useCategory(category)
+	} else {
+		category = ""
+	}
+
 	if id == "" {
 		newID := m.dash.month.Add(kind, label, amount, recurring)
+		if kind == model.Expense {
+			m.dash.month.SetCategory(newID, category)
+		}
 		if !m.save() {
 			return
 		}
@@ -182,19 +247,54 @@ func (m *Model) commitForm(kind model.Kind, id, label string, amount money.Amoun
 		m.setError(err)
 		return
 	}
+	if kind == model.Expense {
+		m.dash.month.SetCategory(id, category)
+	}
 	if m.save() {
+		m.selectEntry(kind, id)
 		m.setStatus("Updated %s", label)
 	}
 }
 
-// selectEntry moves the cursor onto a specific entry.
+// categoryNames lists the categories to offer, by name.
+func (m Model) categoryNames() []string {
+	if m.rules == nil {
+		return nil
+	}
+	return m.rules.SortedCategories()
+}
+
+// useCategory returns a category name as it should be stored, remembering a
+// new one for next time. A category that only differs from a known one by
+// case is that known one.
+func (m *Model) useCategory(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || m.rules == nil {
+		return name
+	}
+	before := len(m.rules.Categories)
+	name = m.rules.AddCategory(name)
+	if len(m.rules.Categories) != before && m.rulesErr == nil {
+		if err := m.store.SaveRules(m.rules); err != nil {
+			m.setError(err)
+		}
+	}
+	return name
+}
+
+// selectEntry moves the cursor onto a specific entry, unfolding its category
+// if that is what hides it.
 func (m *Model) selectEntry(kind model.Kind, id string) {
+	if e, ok := m.dash.month.Find(kind, id); ok && kind == model.Expense {
+		delete(m.dash.collapsed, e.Category)
+	}
 	for i, r := range m.dash.rows() {
-		if r.kind == kind && r.index >= 0 && m.dash.month.Entries(kind)[r.index].ID == id {
+		if r.kind == kind && r.index >= 0 && !r.header && m.dash.month.Entries(kind)[r.index].ID == id {
 			m.dash.cursor = i
 			return
 		}
 	}
+	m.dash.clamp()
 }
 
 func (m Model) monthHints() []hint {
@@ -206,6 +306,8 @@ func (m Model) monthHints() []hint {
 		keyHint("e", "edit"),
 		keyHint("d", "delete"),
 		keyHint("r", "recurring"),
+		keyHint("c", "categorise"),
+		keyHint("u", "uncategorised"),
 		keyHint("←/→", "month"),
 		keyHint("h", "history"),
 		keyHint("?", "help"),
@@ -213,7 +315,10 @@ func (m Model) monthHints() []hint {
 	}
 }
 
-func (m Model) monthView(cw int) string {
+// monthView draws the month. maxH is how many lines it may use; when the list
+// is longer than that it scrolls around the cursor, keeping the title above
+// and the totals below in place. A maxH of zero means no limit.
+func (m Model) monthView(cw, maxH int) string {
 	t := m.theme
 	var lines []string
 
@@ -237,23 +342,119 @@ func (m Model) monthView(cw int) string {
 		lines = append(lines, wrap(t.Warning, cw, m.dash.warning.Error()))
 	}
 
+	var body []string
+	cursorLine := 0
+	totals := map[string]model.CategoryTotal{}
+	for _, c := range m.dash.month.Categories() {
+		totals[c.Name] = c
+	}
 	rows := m.dash.rows()
 	for _, kind := range []model.Kind{model.Income, model.Expense} {
-		lines = append(lines, "", m.sectionHeader(kind, cw))
+		body = append(body, "", m.sectionHeader(kind, cw))
 		for i, r := range rows {
 			if r.kind != kind {
 				continue
 			}
-			lines = append(lines, m.entryLine(r, i == m.dash.cursor, cw))
+			selected := i == m.dash.cursor
+			if selected {
+				cursorLine = len(body)
+			}
+			if r.header {
+				body = append(body, m.categoryLine(totals[r.cat], selected, cw))
+			} else {
+				body = append(body, m.entryLine(r, selected, cw))
+			}
 		}
 	}
 
-	lines = append(lines, "", t.Rule.Render(rule(cw)))
-	lines = append(lines, m.leftLine(cw))
-	if b := m.leftBar(cw); b != "" {
-		lines = append(lines, b)
+	tail := []string{"", t.Rule.Render(rule(cw))}
+	if m.dash.month.HasActuals() {
+		tail = append(tail, m.spentLine(cw))
 	}
+	tail = append(tail, m.leftLine(cw))
+	if b := m.leftBar(cw); b != "" {
+		tail = append(tail, b)
+	}
+
+	if maxH > 0 {
+		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
+		body = scrollWindow(t, body, cursorLine, maxH-fixed, cw)
+	}
+	lines = append(lines, body...)
+	lines = append(lines, tail...)
 	return strings.Join(lines, "\n")
+}
+
+// minScroll is the shortest list worth scrolling. On a terminal too short to
+// show even that, the month is drawn whole and the terminal clips it.
+const minScroll = 6
+
+// scrollWindow cuts lines down to at most h, centred on the cursor line, and
+// says how much is hidden above and below.
+func scrollWindow(t Theme, lines []string, cursor, h, cw int) []string {
+	if h < minScroll || len(lines) <= h {
+		return lines
+	}
+	start := min(max(0, cursor-h/2), len(lines)-h)
+	end := start + h
+	out := append([]string(nil), lines[start:end]...)
+	if start > 0 {
+		out[0] = t.Muted.Render(padRight("  ↑ "+itoa(start)+" more", cw))
+	}
+	if end < len(lines) {
+		out[h-1] = t.Muted.Render(padRight("  ↓ "+itoa(len(lines)-end)+" more", cw))
+	}
+	return out
+}
+
+// categoryLine is the header of one expense category: how many entries it
+// holds and what it comes to, actual against forecast when it has both.
+func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string {
+	t := m.theme
+	arrow := "▾"
+	if m.dash.collapsed[c.Name] {
+		arrow = "▸"
+	}
+	name := c.Name
+	if name == "" {
+		name = "Uncategorised"
+	}
+	left := arrow + " " + name + " (" + itoa(c.Count) + ")"
+
+	var right string
+	switch {
+	case c.Name == model.Transfers:
+		right = "not counted " + (c.Forecast + c.Actual).String()
+	case c.Forecast > 0 && c.Actual > 0:
+		right = c.Actual.String() + " of " + c.Forecast.String()
+	default:
+		right = c.Projected.String()
+	}
+	if lipgloss.Width(right) > cw/2 {
+		right = c.Projected.String()
+	}
+	leftW := max(0, cw-lipgloss.Width(right))
+	left = padRight(truncate(left, max(0, leftW-1)), leftW)
+
+	switch {
+	case selected:
+		return t.Selected.Bold(true).Render(padRight(left+right, cw))
+	case c.Name == model.Transfers:
+		return t.Muted.Render(left + right)
+	case c.Name == "" && c.Actual > 0:
+		return t.Warning.Render(left) + t.Total.Render(right)
+	case c.Forecast > 0 && c.Actual > c.Forecast:
+		return t.Section.Render(left) + t.Negative.Render(right)
+	}
+	return t.Section.Render(left) + t.Total.Render(right)
+}
+
+// spentLine separates what the bank has already reported from the projection
+// in the line below it.
+func (m Model) spentLine(cw int) string {
+	t := m.theme
+	amount := m.dash.month.Spent().Lei()
+	return t.Muted.Render(padRight("spent so far", cw-lipgloss.Width(amount)) + amount)
 }
 
 // monthNote explains an unsaved month: where its entries came from.
@@ -297,11 +498,22 @@ func (m Model) entryLine(r row, selected bool, cw int) string {
 	if e.Recurring {
 		marker = " ↻"
 	}
-	label := padRight(truncate(e.Label, labelW), labelW)
+	text := e.Label
+	if len(e.Date) == len("2026-10-02") {
+		text = e.Date[8:] + " " + text // day of the month the bank booked it
+	}
+	if e.Planned > 0 {
+		text += " · planned " + e.Planned.String()
+	}
+	label := padRight(truncate(text, labelW), labelW)
 	amount := padLeft(e.Amount.String(), amtW)
 
 	if selected {
 		return t.Selected.Bold(true).Render(padRight("› "+label+marker+amount, cw))
+	}
+	if e.IsForecast() && m.dash.month.HasActuals() {
+		// Still only expected: the bank has not reported it yet.
+		return t.Muted.Render("  "+label) + t.Marker.Render(marker) + t.Muted.Render(amount)
 	}
 	return t.Label.Render("  "+label) + t.Marker.Render(marker) + t.Amount.Render(amount)
 }

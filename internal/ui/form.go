@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 
@@ -10,12 +11,13 @@ import (
 	"github.com/madalingiurca/budget/internal/money"
 )
 
-// form field order.
+// form fields. Income has no category, so the fields a form shows are listed
+// per form rather than assumed.
 const (
 	fieldLabel = iota
 	fieldAmount
+	fieldCategory
 	fieldRecurring
-	fieldCount
 )
 
 // formState is the add/edit modal. One modal serves both because an entry and
@@ -26,13 +28,31 @@ type formState struct {
 	id        string
 	label     textinput.Model
 	amount    textinput.Model
+	category  textinput.Model
 	recurring bool
-	focus     int
-	err       string
+	// fields are the fields this form has, in tab order; focus is one of them.
+	fields []int
+	focus  int
+	err    string
 }
 
-func newForm(t Theme, kind model.Kind, editing *model.Entry) *formState {
-	f := &formState{kind: kind}
+// newForm opens the modal. category prefills the category of an expense and
+// categories are the names offered as completions while typing one.
+func newForm(t Theme, kind model.Kind, editing *model.Entry, category string, categories []string) *formState {
+	f := &formState{kind: kind, fields: []int{fieldLabel, fieldAmount, fieldRecurring}}
+	if kind == model.Expense {
+		f.fields = []int{fieldLabel, fieldAmount, fieldCategory, fieldRecurring}
+	}
+
+	f.category = textinput.New()
+	f.category.Prompt = ""
+	f.category.CharLimit = 40
+	f.category.Placeholder = "none"
+	f.category.ShowSuggestions = true
+	f.category.SetSuggestions(categories)
+	// Tab moves between fields here, so a completion is taken with →.
+	f.category.KeyMap.AcceptSuggestion = key.NewBinding(key.WithKeys("right"))
+	f.category.SetValue(category)
 
 	f.label = textinput.New()
 	f.label.Prompt = ""
@@ -68,18 +88,33 @@ func (f *formState) restyle(t Theme) {
 	styles := textinput.DefaultStyles(t.dark)
 	f.label.SetStyles(styles)
 	f.amount.SetStyles(styles)
+	f.category.SetStyles(styles)
 }
 
 func (f *formState) setFocus(field int) {
-	f.focus = ((field % fieldCount) + fieldCount) % fieldCount
+	f.focus = field
 	f.label.Blur()
 	f.amount.Blur()
+	f.category.Blur()
 	switch f.focus {
 	case fieldLabel:
 		f.label.Focus()
 	case fieldAmount:
 		f.amount.Focus()
+	case fieldCategory:
+		f.category.Focus()
 	}
+}
+
+// step moves the focus by n fields, wrapping round.
+func (f *formState) step(n int) {
+	at := 0
+	for i, field := range f.fields {
+		if field == f.focus {
+			at = i
+		}
+	}
+	f.setFocus(f.fields[((at+n)%len(f.fields)+len(f.fields))%len(f.fields)])
 }
 
 // parse validates the fields, returning the values to commit.
@@ -117,10 +152,10 @@ func (m Model) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab", "down":
-		f.setFocus(f.focus + 1)
+		f.step(1)
 		return m, nil
 	case "shift+tab", "up":
-		f.setFocus(f.focus - 1)
+		f.step(-1)
 		return m, nil
 
 	case "space", " ":
@@ -134,9 +169,9 @@ func (m Model) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		kind, id, recurring := f.kind, f.id, f.recurring
+		kind, id, recurring, category := f.kind, f.id, f.recurring, f.category.Value()
 		m.form = nil
-		m.commitForm(kind, id, label, amount, recurring)
+		m.commitForm(kind, id, label, amount, recurring, category)
 		return m, nil
 	}
 
@@ -147,6 +182,8 @@ func (m Model) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		f.label, cmd = f.label.Update(msg)
 	case fieldAmount:
 		f.amount, cmd = f.amount.Update(msg)
+	case fieldCategory:
+		f.category, cmd = f.category.Update(msg)
 	}
 	return m, cmd
 }
@@ -158,23 +195,29 @@ func (f *formState) view(t Theme, cw int) string {
 	}
 	title += f.kind.String()
 
-	fieldW := max(10, cw-10)
+	fieldW := max(10, cw-11)
 	f.label.SetWidth(fieldW)
 	f.amount.SetWidth(fieldW)
+	f.category.SetWidth(fieldW)
 
 	lines := []string{
 		t.Title.Render(title),
 		"",
 		f.fieldLine(t, "Label", f.label.View(), f.focus == fieldLabel),
 		f.fieldLine(t, "Amount", f.amount.View(), f.focus == fieldAmount),
-		"",
-		f.recurringLine(t, cw),
 	}
+	if f.kind == model.Expense {
+		lines = append(lines, f.fieldLine(t, "Category", f.category.View(), f.focus == fieldCategory))
+	}
+	lines = append(lines, "", f.recurringLine(t, cw))
 	if f.err != "" {
 		lines = append(lines, "", t.Danger.Render(truncate(f.err, cw)))
 	}
-	lines = append(lines, "", t.Footer.Render(truncate(
-		"tab next · space toggle · enter save · esc cancel", cw)))
+	keys := "tab next · space toggle · enter save · esc cancel"
+	if f.focus == fieldCategory {
+		keys = "→ complete · tab next · enter save · esc cancel"
+	}
+	lines = append(lines, "", t.Footer.Render(truncate(keys, cw)))
 	return strings.Join(lines, "\n")
 }
 
@@ -185,7 +228,7 @@ func (f *formState) fieldLine(t Theme, name, input string, focused bool) string 
 		style = t.FieldOn
 		caret = "› "
 	}
-	return caret + style.Render(padRight(name, 8)) + input
+	return caret + style.Render(padRight(name, 9)) + input
 }
 
 func (f *formState) recurringLine(t Theme, cw int) string {

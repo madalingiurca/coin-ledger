@@ -6,8 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/madalingiurca/budget/internal/model"
+	"github.com/madalingiurca/budget/internal/money"
 )
 
 // rulesFile holds the categories, payee rules and forecast links. It is the
@@ -112,4 +115,66 @@ func (s *Store) ApplyRule(rule model.Rule) (Sweep, error) {
 // themselves are renamed with Rules.RenameCategory and saved by the caller.
 func (s *Store) RenameCategory(from, to string) (Sweep, error) {
 	return s.sweep(func(m *model.Month) int { return m.RenameCategory(from, to) })
+}
+
+// PayeeSummary is one payee whose expenses still have no category.
+type PayeeSummary struct {
+	// Payee is the normalised name rules match on; Label is how the bank
+	// spelled it on the most recent entry.
+	Payee string
+	Label string
+	Count int
+	Total money.Amount
+	// Months is how many different months the payee appears in.
+	Months int
+}
+
+// UncategorisedPayees lists every payee with imported expenses that have no
+// category yet, across all months on disk, largest total first. Months that
+// cannot be read are skipped.
+func (s *Store) UncategorisedPayees() ([]PayeeSummary, error) {
+	keys, err := s.Keys() // newest first
+	if err != nil {
+		return nil, err
+	}
+	byPayee := map[string]*PayeeSummary{}
+	var order []string
+	for _, k := range keys {
+		m, err := s.Load(k)
+		if err != nil {
+			continue
+		}
+		seen := map[string]bool{}
+		for _, e := range m.Expenses {
+			if e.Category != "" || e.Payee == "" {
+				continue
+			}
+			p, ok := byPayee[e.Payee]
+			if !ok {
+				p = &PayeeSummary{Payee: e.Payee, Label: e.Label}
+				byPayee[e.Payee] = p
+				order = append(order, e.Payee)
+			}
+			p.Count++
+			p.Total += e.Amount
+			if !seen[e.Payee] {
+				seen[e.Payee] = true
+				p.Months++
+			}
+		}
+	}
+	out := make([]PayeeSummary, 0, len(order))
+	for _, name := range order {
+		out = append(out, *byPayee[name])
+	}
+	slices.SortStableFunc(out, func(a, b PayeeSummary) int {
+		if a.Total != b.Total {
+			if a.Total > b.Total {
+				return -1
+			}
+			return 1
+		}
+		return strings.Compare(a.Payee, b.Payee)
+	})
+	return out, nil
 }
