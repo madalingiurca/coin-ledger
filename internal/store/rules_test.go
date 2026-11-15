@@ -140,7 +140,7 @@ func TestApplyRuleAcrossMonths(t *testing.T) {
 	before, _ := os.ReadFile(s.Path(nov))
 	os.WriteFile(s.Path(model.Key{Year: 2026, Month: 8}), []byte("{broken"), 0o600)
 
-	sweep, err := s.ApplyRule(model.Rule{Match: "BOLT", Category: "Transport"})
+	sweep, err := s.ApplyRule(model.Rule{Match: "BOLT", Category: "Transport"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,7 +61,7 @@ func TestING(t *testing.T) {
 		{"2026-10-01", out, 150, "Round Up"},
 		{"2026-10-02", in, 1265000, "EXEMPLU SRL"},
 		{"2026-10-02", out, 50000, "Revolut**9999*"},
-		{"2026-10-05", out, 120499, "RYANAIR Q47ZRT2"},
+		{"2026-10-05", out, 120499, "RYANAIR"},
 		{"2026-10-05", out, 540, "VENDING ZONE SRL"},
 		{"2026-10-05", out, 540, "VENDING ZONE SRL"},
 		{"2026-10-10", out, 25000, "Maria Ionescu"},
@@ -261,6 +261,30 @@ func TestParseDecimal(t *testing.T) {
 	for _, bad := range []string{"", "1", "1,5", "1,500", ",50", "1.384,95x", "a,bc"} {
 		if _, err := parseDecimal(bad, ','); err == nil {
 			t.Errorf("parseDecimal(%q) succeeded", bad)
+		}
+	}
+}
+
+func TestShopName(t *testing.T) {
+	for in, want := range map[string]string{
+		"MOL 91022 Bucuresti":       "MOL",
+		"OMV 1318":                  "OMV",
+		"PENNY 4498 BUC BDTIMISOAR": "PENNY",
+		"MEGAIMAGE 0002 MILITARI":   "MEGAIMAGE",
+		"CARREFOUR LUJERULUI SCO 1": "CARREFOUR LUJERULUI SCO",
+		"BOLT.EUO2601010001":        "BOLT.EU",
+		"BOLT.EU/O/2601020002":      "BOLT.EU",
+		"RYANAIR     Q47ZRT2":       "RYANAIR",
+		"Wizz Air MalVK9VWI":        "Wizz Air",
+		"METRO TIM 16B C2":          "METRO TIM 16B C2",
+		"W061 JYSK FRIGOCOM C1":     "W061 JYSK FRIGOCOM C1",
+		"Revolut**9999*":            "Revolut**9999*",
+		"FAST MARKET":               "FAST MARKET",
+		"5513":                      "5513",
+		"INMBUCPTAROMANA677":        "INMBUCPTAROMANA677",
+	} {
+		if got := shopName(in); got != want {
+			t.Errorf("shopName(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

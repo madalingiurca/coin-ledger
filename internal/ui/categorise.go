@@ -210,6 +210,12 @@ func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	c.err = ""
+	// Typing on the list starts a new category name rather than being lost:
+	// a name that turns out to exist already is that category.
+	if c.focus == catList && !c.onNew() && msg.Text != "" && msg.Text != " " {
+		c.cursor = len(c.options)
+		c.setFocus(catList)
+	}
 	var cmd tea.Cmd
 	switch {
 	case c.focus == catMatch:
@@ -277,7 +283,7 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 		m.setError(err)
 		return
 	}
-	sweep, err := m.store.ApplyRule(rule)
+	sweep, err := m.store.ApplyRule(rule, m.rules)
 	if err != nil {
 		m.setError(err)
 		return

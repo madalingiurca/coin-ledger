@@ -97,7 +97,7 @@ func (m Model) historyView(cw int) string {
 	}
 	if avg, ok := m.histAverage(); ok {
 		lines = append(lines, "", t.Muted.Render(truncate(
-			"Average left over "+itoa(m.histReadable())+" months: ", cw))+t.Total.Render(avg.Lei()))
+			"Average left over "+plural(m.histReadable(), "month", "months")+": ", cw))+t.Total.Render(avg.Lei()))
 	}
 	return strings.Join(lines, "\n")
 }

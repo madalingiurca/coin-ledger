@@ -105,10 +105,11 @@ func (s *Store) sweep(change func(*model.Month) int) (Sweep, error) {
 	return out, nil
 }
 
-// ApplyRule files the uncategorised expenses that rule matches, in every month
-// on disk. Entries that already have a category are left alone.
-func (s *Store) ApplyRule(rule model.Rule) (Sweep, error) {
-	return s.sweep(func(m *model.Month) int { return m.Apply(rule) })
+// ApplyRule files the expenses rule matches in every month on disk, as
+// Month.Apply does. all is the full rule set, so a more specific rule keeps
+// its entries.
+func (s *Store) ApplyRule(rule model.Rule, all *model.Rules) (Sweep, error) {
+	return s.sweep(func(m *model.Month) int { return m.Apply(rule, all) })
 }
 
 // RenameCategory renames a category in every month on disk. The rules

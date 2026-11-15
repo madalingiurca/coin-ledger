@@ -192,15 +192,44 @@ func (r *Rules) SetLink(payee, label string) {
 	r.Links = append(r.Links, l)
 }
 
-// Apply files every uncategorised expense that rule matches. Entries that
-// already have a category were put there on purpose and are left alone. It
-// returns how many entries changed.
-func (m *Month) Apply(rule Rule) int {
+// Apply files the expenses rule matches: the uncategorised ones, and the ones
+// an earlier rule filed, so changing a payee's category moves its entries.
+// Entries filed by hand stay where they were put, and so do entries a longer,
+// more specific rule in all claims. It returns how many entries changed.
+func (m *Month) Apply(rule Rule, all *Rules) int {
 	n := 0
 	for i := range m.Expenses {
 		e := &m.Expenses[i]
-		if e.Category == "" && rule.Matches(e.Payee) {
-			e.Category = rule.Category
+		if (e.Category != "" && !e.Auto) || !rule.Matches(e.Payee) {
+			continue
+		}
+		if all != nil {
+			if best, _ := all.CategoryFor(e.Payee); best != rule.Category {
+				continue
+			}
+		}
+		if e.Category != rule.Category || !e.Auto {
+			e.Category, e.Auto = rule.Category, true
+			n++
+		}
+	}
+	// Money from the user's own account is a transfer on the income side too.
+	for i := range m.Income {
+		e := &m.Income[i]
+		if (e.Category != "" && !e.Auto) || !rule.Matches(e.Payee) {
+			continue
+		}
+		if all != nil {
+			if best, _ := all.CategoryFor(e.Payee); best != rule.Category {
+				continue
+			}
+		}
+		want := ""
+		if rule.Category == Transfers {
+			want = Transfers
+		}
+		if e.Category != want {
+			e.Category, e.Auto = want, want != ""
 			n++
 		}
 	}

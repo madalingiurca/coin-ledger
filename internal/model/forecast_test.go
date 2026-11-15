@@ -296,10 +296,10 @@ func TestForecastMatches(t *testing.T) {
 		t.Errorf("amount match = %+v", got)
 	}
 
-	// Different amount and no link: no candidate.
+	// A slightly different amount and no link: offered as close only.
 	imp := bankRow("k2", "Rata Credit", money.Amount(215470), "")
-	if got := m.ForecastMatches(Expense, imp, rules); len(got) != 0 {
-		t.Errorf("unexpected match = %+v", got)
+	if got := m.ForecastMatches(Expense, imp, rules); len(got) != 1 || got[0].Reason != MatchClose {
+		t.Errorf("close match = %+v", got)
 	}
 
 	// Once linked, the payee finds its forecast whatever the amount.
@@ -318,5 +318,22 @@ func TestForecastMatches(t *testing.T) {
 
 	if got := m.ForecastMatches(Income, imp, nil); len(got) != 0 {
 		t.Errorf("income matched an expense: %+v", got)
+	}
+}
+
+func TestCloseAmountMatches(t *testing.T) {
+	m := New(Key{2026, time.October})
+	salary := m.Add(Income, "Salary", lei(12500), true)
+	m.Add(Expense, "Coffee", lei(20), false) // too small to guess at
+
+	got := m.ForecastMatches(Income, bankRow("k1", "Employer", lei(12650), ""), nil)
+	if len(got) != 1 || got[0].Entry.ID != salary || got[0].Reason != MatchClose {
+		t.Errorf("matches = %+v", got)
+	}
+	if got := m.ForecastMatches(Income, bankRow("k2", "Employer", lei(14000), ""), nil); len(got) != 0 {
+		t.Errorf("12%% off matched: %+v", got)
+	}
+	if got := m.ForecastMatches(Expense, bankRow("k3", "Cafe", lei(21), ""), nil); len(got) != 0 {
+		t.Errorf("a small forecast matched a near amount: %+v", got)
 	}
 }

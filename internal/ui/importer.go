@@ -74,11 +74,34 @@ type importMonth struct {
 type importRow struct {
 	txn      importer.Txn
 	category string
-	// match is a forecast entry this row looks like the actual for; replace
-	// says whether the user wants the row to take its place.
-	match   *model.Entry
-	reason  model.MatchReason
-	replace bool
+	// match is a forecast entry this row looks like the actual for; choice
+	// is what the user wants done about it.
+	match  *model.Entry
+	reason model.MatchReason
+	choice pairChoice
+}
+
+// pairChoice is what becomes of a bank row that looks like a forecast entry.
+type pairChoice int
+
+const (
+	// pairReplace: the row takes the forecast entry's place.
+	pairReplace pairChoice = iota
+	// pairKeep: both stay, the row filed in the plan's category so that the
+	// category counts the larger of the two rather than both.
+	pairKeep
+	// pairApart: the row has nothing to do with the plan.
+	pairApart
+)
+
+func (c pairChoice) String() string {
+	switch c {
+	case pairKeep:
+		return "keep both"
+	case pairApart:
+		return "unrelated"
+	}
+	return "replace"
 }
 
 func (im importMonth) count(pred func(importRow) bool) int {
@@ -202,7 +225,7 @@ func (m Model) importKey(key string) (tea.Model, tea.Cmd) {
 		case "space", " ", "r":
 			p := pairs[s.matchCursor]
 			row := &s.months[p.month].add[p.row]
-			row.replace = !row.replace
+			row.choice = (row.choice + 1) % 3
 		case "enter", "y":
 			m.commitImport()
 		}
@@ -287,8 +310,8 @@ func (m *Model) previewImport(path string) {
 			continue
 		}
 		row := importRow{txn: txn}
-		if txn.Kind == model.Expense {
-			row.category, _ = m.rules.CategoryFor(txn.Payee)
+		if c, ok := m.rules.CategoryFor(txn.Payee); ok && (txn.Kind == model.Expense || c == model.Transfers) {
+			row.category = c
 		}
 		im.add = append(im.add, row)
 	}
@@ -306,13 +329,14 @@ func (m *Model) previewImport(path string) {
 // matchForecasts pairs bank rows with the forecast entries they look like:
 // first rows whose payee has replaced a forecast before, then rows for exactly
 // a forecast's amount. Each forecast entry is offered to one row at most.
-// Every pair starts out as "replace"; the user decides.
+// A pair starts out as "replace", or "keep both" for a near amount; the user
+// decides.
 func (m *Model) matchForecasts(im *importMonth, source string) {
 	if im.month == nil {
 		return
 	}
 	claimed := map[string]bool{}
-	for _, want := range []model.MatchReason{model.MatchLinked, model.MatchAmount} {
+	for _, want := range []model.MatchReason{model.MatchLinked, model.MatchAmount, model.MatchClose} {
 		for i := range im.add {
 			r := &im.add[i]
 			if r.match != nil || r.category == model.Transfers {
@@ -323,7 +347,11 @@ func (m *Model) matchForecasts(im *importMonth, source string) {
 					continue
 				}
 				e := c.Entry
-				r.match, r.reason, r.replace = &e, c.Reason, true
+				// A near amount is only a guess: the plan is kept beside it.
+				r.match, r.reason, r.choice = &e, c.Reason, pairReplace
+				if c.Reason == model.MatchClose {
+					r.choice = pairKeep
+				}
 				claimed[e.ID] = true
 				break
 			}
@@ -360,8 +388,11 @@ func (m *Model) commitImport() {
 		}
 		for _, r := range im.add {
 			imp := r.txn.Imported(s.st.Source)
-			imp.Category = r.category
-			if r.match != nil && r.replace {
+			imp.Category, imp.Auto = r.category, r.category != ""
+			if r.match != nil && r.choice == pairKeep && imp.Category == "" && r.txn.Kind == model.Expense {
+				imp.Category, imp.Auto = r.match.Category, false
+			}
+			if r.match != nil && r.choice == pairReplace {
 				if err := im.month.ReplaceForecast(r.txn.Kind, r.match.ID, imp); err == nil {
 					replaced++
 					if m.rules.SetLinkIfNew(imp.Payee, r.match.Label) {
@@ -410,11 +441,11 @@ func (m *Model) commitImport() {
 
 func (m Model) importHints() []hint {
 	if m.imp.stage == stageMatches {
-		return []hint{keyHint("space", "replace / keep both"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back")}
+		return []hint{keyHint("space", "replace / keep both / unrelated"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
 	}
 	if m.imp.stage == stagePreview {
 		if m.imp.newCount() == 0 {
-			return []hint{keyHint("esc", "back"), keyHint("enter", "close")}
+			return []hint{keyHint("esc", "back"), keyHint("enter", "close"), keyHint("q", "quit")}
 		}
 		return []hint{keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
 	}
@@ -423,6 +454,7 @@ func (m Model) importHints() []hint {
 		keyHint("←", "up a folder"),
 		keyHint("~", "home"),
 		keyHint("esc", "cancel"),
+		keyHint("q", "quit"),
 	}
 }
 
@@ -524,8 +556,10 @@ func (m Model) previewView(cw int) string {
 			a := amount.Lei()
 			return style.Render(padRight("  "+label, cw-lipgloss.Width(a))) + t.Amount.Render(a)
 		}
-		in := im.count(func(r importRow) bool { return r.txn.Kind == model.Income })
-		out := len(im.add) - in
+		counted := func(kind model.Kind) func(importRow) bool {
+			return func(r importRow) bool { return r.txn.Kind == kind && r.category != model.Transfers }
+		}
+		in, out := im.count(counted(model.Income)), im.count(counted(model.Expense))
 		if in > 0 {
 			lines = append(lines, line("income · "+itoa(in), im.total(model.Income), t.Label))
 		}
@@ -550,7 +584,7 @@ func (m Model) previewView(cw int) string {
 			parts = append(parts, itoa(im.dupes)+" already imported")
 		}
 		if len(parts) > 0 {
-			lines = append(lines, wrap(t.Muted, cw, "  "+strings.Join(parts, " · ")))
+			lines = append(lines, wrap(t.Muted.PaddingLeft(2), cw, strings.Join(parts, " · ")))
 		}
 	}
 
@@ -558,8 +592,9 @@ func (m Model) previewView(cw int) string {
 	if s.newCount() == 0 {
 		lines = append(lines, wrap(t.Muted, cw, "Everything in this file is already in your budget."))
 	} else if n := len(s.pairs()); n > 0 {
-		lines = append(lines, wrap(t.Muted, cw, "Press enter to choose, for the "+plural(n, "row", "rows")+
-			" that look like a forecast entry, whether to replace it. Nothing is saved before that."))
+		lines = append(lines, wrap(t.Muted, cw, "Press enter to choose whether "+
+			map[bool]string{true: "the row that looks", false: "the " + itoa(n) + " rows that look"}[n == 1]+
+			" like a forecast entry should replace it. Nothing is saved before that."))
 	} else {
 		lines = append(lines, wrap(t.Muted, cw, "Nothing is saved until you press enter. The bank file itself is not copied."))
 	}
@@ -575,7 +610,7 @@ func (m Model) matchesView(cw, maxH int) string {
 	name, right := spread("already planned", plural(len(pairs), "match", "matches"), cw)
 	lines := []string{t.Title.Render(name) + t.Month.Render(right), ""}
 	lines = append(lines, wrap(t.Muted, cw,
-		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan."), "")
+		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan, in its category, so the larger of the two counts. Unrelated adds the row on its own."), "")
 
 	amtW := min(amountCol, max(6, cw-4-6))
 	choiceW := len("keep both") + 2
@@ -590,14 +625,20 @@ func (m Model) matchesView(cw, maxH int) string {
 			body = append(body, t.Section.Render(strings.ToUpper(im.key.Label())))
 			lastMonth = p.month
 		}
-		choice, cstyle := "replace", t.Positive
-		if !r.replace {
-			choice, cstyle = "keep both", t.Warning
+		choice, cstyle := r.choice.String(), t.Positive
+		switch r.choice {
+		case pairKeep:
+			cstyle = t.Warning
+		case pairApart:
+			cstyle = t.Muted
 		}
 		plan := padRight(truncate(r.match.Label, labelW-1), labelW) + padLeft(r.match.Amount.String(), amtW)
 		why := "same amount"
-		if r.reason == model.MatchLinked {
+		switch r.reason {
+		case model.MatchLinked:
 			why = "replaced it before"
+		case model.MatchClose:
+			why = "close amount"
 		}
 		bankLine := "  ↳ " + r.txn.Date[8:] + " " + r.txn.Label + " · " + why
 		bank := padRight(truncate(bankLine, labelW-1), labelW) + padLeft(r.txn.Amount.String(), amtW)

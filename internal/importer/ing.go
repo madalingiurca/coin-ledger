@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/madalingiurca/budget/internal/model"
 	"github.com/madalingiurca/budget/internal/money"
@@ -261,11 +262,14 @@ func ingLabel(r *ingRow) string {
 	if r.typ == "Tranzactie Round Up" {
 		return "Round Up" // the shop it rounded up from is not where it went
 	}
+	if r.typ == "Retragere numerar" {
+		return "Cash withdrawal" // the terminal is the ATM, not a payee
+	}
 	if t := r.detail("Terminal"); t != "" {
 		if m := ingCity.FindStringSubmatch(t); m != nil {
-			return tidy(m[1])
+			t = m[1]
 		}
-		return t
+		return shopName(t)
 	}
 	for _, key := range []string{"Beneficiar", "Ordonator"} {
 		if v := r.detail(key); v != "" {
@@ -273,6 +277,59 @@ func ingLabel(r *ingRow) string {
 		}
 	}
 	return r.typ
+}
+
+// ingOrder is an order number glued to a merchant's name, as Bolt does:
+// "BOLT.EUO2601010001" and "BOLT.EU/O/2601020002" are both "BOLT.EU".
+var ingOrder = regexp.MustCompile(`(?:/?O)?/?\d{6,}$`)
+
+// shopName drops what makes one shop look like many: a store or branch
+// number and whatever follows it ("MOL 91022 Bucuresti", "PENNY 4498 BUC
+// BDTIMISOAR"), a booking reference ("RYANAIR Q47ZRT2") and an order number.
+// The first word is always kept, so a name that is only digits survives.
+func shopName(s string) string {
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return ""
+	}
+	keep := []string{words[0]}
+	for _, w := range words[1:] {
+		if allDigits(w) || isReference(w) {
+			break
+		}
+		keep = append(keep, w)
+	}
+	if name := ingOrder.ReplaceAllString(keep[0], ""); name != "" {
+		keep[0] = name
+	}
+	return strings.Join(keep, " ")
+}
+
+func allDigits(w string) bool {
+	for _, r := range w {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return w != ""
+}
+
+// isReference reports a code of letters and digits, such as a booking
+// reference, as opposed to a word or a short code like "C2" or "16B".
+func isReference(w string) bool {
+	if len(w) < 6 {
+		return false
+	}
+	var letters, digits bool
+	for _, r := range w {
+		switch {
+		case r >= '0' && r <= '9':
+			digits = true
+		case unicode.IsLetter(r):
+			letters = true
+		}
+	}
+	return letters && digits
 }
 
 func index(rec []string, want string) int {
@@ -294,9 +351,11 @@ func firstAmount(rec []string) (money.Amount, bool, error) {
 	return 0, false, nil
 }
 
+// signed writes an amount with its sign. A minus sign rather than a hyphen,
+// so that wrapping the note never splits it from its number.
 func signed(a money.Amount) string {
 	if a >= 0 {
 		return "+" + a.Lei()
 	}
-	return a.Lei()
+	return "−" + (-a).Lei()
 }

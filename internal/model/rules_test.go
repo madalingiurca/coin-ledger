@@ -152,14 +152,14 @@ func TestApplyLeavesCategorisedEntriesAlone(t *testing.T) {
 	m.AddImported(Expense, bankRow("k3", "Uber", lei(40), ""))
 	m.Add(Expense, "Bolt budget", lei(100), false) // a forecast has no payee
 
-	if n := m.Apply(Rule{Match: "BOLT", Category: "Transport"}); n != 1 {
+	if n := m.Apply(Rule{Match: "BOLT", Category: "Transport"}, nil); n != 1 {
 		t.Errorf("applied to %d entries, want 1", n)
 	}
 	got := []string{m.Expenses[0].Category, m.Expenses[1].Category, m.Expenses[2].Category, m.Expenses[3].Category}
 	if strings.Join(got, "|") != "Transport|Work travel||" {
 		t.Errorf("categories = %q", got)
 	}
-	if n := m.Apply(Rule{Match: "", Category: "Everything"}); n != 0 {
+	if n := m.Apply(Rule{Match: "", Category: "Everything"}, nil); n != 0 {
 		t.Errorf("an empty pattern matched %d entries", n)
 	}
 }
@@ -189,5 +189,72 @@ func TestSetLinkIfNew(t *testing.T) {
 	}
 	if len(r.Links) != 1 {
 		t.Errorf("links = %+v", r.Links)
+	}
+}
+
+// Changing a payee's rule moves the entries the old rule filed, but never the
+// ones filed by hand, and never past a more specific rule.
+func TestApplyMovesWhatAnEarlierRuleFiled(t *testing.T) {
+	r := NewRules()
+	r.SetRule("Round Up", Transfers)
+	m := New(Key{2026, time.October})
+	auto := bankRow("k1", "Round Up", lei(2), Transfers)
+	auto.Auto = true
+	m.AddImported(Expense, auto)
+	manual := bankRow("k2", "Round Up", lei(3), "Gifts")
+	m.AddImported(Expense, manual)
+
+	rule := r.SetRule("Round Up", "Savings")
+	if n := m.Apply(rule, r); n != 1 {
+		t.Errorf("moved %d entries, want 1", n)
+	}
+	if m.Expenses[0].Category != "Savings" || !m.Expenses[0].Auto || m.Expenses[1].Category != "Gifts" {
+		t.Errorf("categories = %q / %q", m.Expenses[0].Category, m.Expenses[1].Category)
+	}
+	if n := m.Apply(rule, r); n != 0 {
+		t.Errorf("applying again changed %d entries", n)
+	}
+
+	// A longer rule keeps its own entries.
+	r.SetRule("Carrefour Tabac", "Tobacco")
+	tob := bankRow("k3", "Carrefour Tabac", lei(30), "Tobacco")
+	tob.Auto = true
+	m.AddImported(Expense, tob)
+	if n := m.Apply(r.SetRule("Carrefour", "Groceries"), r); n != 0 || m.Expenses[2].Category != "Tobacco" {
+		t.Errorf("a shorter rule took %d entries; category %q", n, m.Expenses[2].Category)
+	}
+
+	// Picking by hand takes the entry out of the rules' reach.
+	m.SetCategory(m.Expenses[0].ID, "Fun")
+	if m.Expenses[0].Auto {
+		t.Error("a hand-picked category is still marked as a rule's")
+	}
+}
+
+func TestIncomeTransfers(t *testing.T) {
+	m := New(Key{2026, time.October})
+	topup := bankRow("k1", "Top-up by *1234", lei(500), Transfers)
+	topup.Auto = true
+	m.AddImported(Income, topup)
+	m.AddImported(Income, bankRow("k2", "Friend", lei(50), "Food")) // a non-transfer category is dropped
+	if m.Income[0].Category != Transfers || m.Income[1].Category != "" {
+		t.Errorf("income categories = %q / %q", m.Income[0].Category, m.Income[1].Category)
+	}
+	if got := m.TotalIncome(); got != lei(50) {
+		t.Errorf("income = %v, want the top-up left out", got)
+	}
+
+	// A rule made later catches income from the user's own account too.
+	m2 := New(Key{2026, time.October})
+	m2.AddImported(Income, bankRow("k1", "Savings account", lei(300), ""))
+	r := NewRules()
+	if n := m2.Apply(r.SetRule("Savings account", Transfers), r); n != 1 || m2.Income[0].Category != Transfers {
+		t.Errorf("moved %d, category %q", n, m2.Income[0].Category)
+	}
+	// Any other rule leaves income alone.
+	m3 := New(Key{2026, time.October})
+	m3.AddImported(Income, bankRow("k1", "Bolt refund", lei(10), ""))
+	if n := m3.Apply(r.SetRule("Bolt", "Transport"), r); n != 0 || m3.Income[0].Category != "" {
+		t.Errorf("income took a spending category: %q", m3.Income[0].Category)
 	}
 }

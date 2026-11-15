@@ -56,8 +56,13 @@ func (d dash) rows() []row {
 	if len(d.month.Income) == 0 {
 		out = append(out, row{kind: model.Income, index: -1})
 	}
-	for i := range d.month.Income {
-		out = append(out, row{kind: model.Income, index: i})
+	// Money moved in from your own accounts is listed after real income.
+	for _, transfers := range []bool{false, true} {
+		for i, e := range d.month.Income {
+			if e.IsTransfer() == transfers {
+				out = append(out, row{kind: model.Income, index: i})
+			}
+		}
 	}
 
 	switch {
@@ -506,8 +511,11 @@ func (m Model) entryLine(r row, selected bool, cw int) string {
 	if len(e.Date) == len("2026-10-02") {
 		text = e.Date[8:] + " " + text // day of the month the bank booked it
 	}
-	if e.Planned > 0 {
+	if e.Planned > 0 && e.Planned != e.Amount {
 		text += " · planned " + e.Planned.String()
+	}
+	if r.kind == model.Income && e.IsTransfer() {
+		text += " · transfer, not counted"
 	}
 	label := padRight(truncate(text, labelW), labelW)
 	amount := padLeft(e.Amount.String(), amtW)
@@ -515,7 +523,7 @@ func (m Model) entryLine(r row, selected bool, cw int) string {
 	if selected {
 		return t.Selected.Bold(true).Render(padRight("› "+label+marker+amount, cw))
 	}
-	if e.IsForecast() && m.dash.month.HasActuals() {
+	if (e.IsForecast() && m.dash.month.HasActuals()) || (r.kind == model.Income && e.IsTransfer()) {
 		// Still only expected: the bank has not reported it yet.
 		return t.Muted.Render("  "+label) + t.Marker.Render(marker) + t.Muted.Render(amount)
 	}

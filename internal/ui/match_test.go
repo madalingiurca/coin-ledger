@@ -210,3 +210,124 @@ func TestPayeeOneByOneEscGoesBack(t *testing.T) {
 		t.Error("esc did not return to the payee list")
 	}
 }
+
+// Typing a name while the list cursor is on an existing category starts a
+// new one instead of being swallowed.
+func TestCategoriseTypingStartsANewName(t *testing.T) {
+	s := testStore(t)
+	rules, _ := s.LoadRules()
+	rules.AddCategory("Groceries")
+	s.SaveRules(rules)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Round Up", 2, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "c")
+	if m.cat.onNew() {
+		t.Fatal("the dialog should start on Groceries")
+	}
+	m = press(t, m, typing("Savings")...)
+	m = press(t, m, "enter")
+	if got := m.dash.month.Expenses[0].Category; got != "Savings" {
+		t.Errorf("category = %q", got)
+	}
+}
+
+// Re-filing a payee moves the entries its old rule filed, in every month.
+func TestChangingAPayeeRuleMovesItsEntries(t *testing.T) {
+	importHome(t)
+	s := testStore(t)
+	rules, _ := s.LoadRules()
+	rules.SetRule("Round Up", model.Transfers)
+	s.SaveRules(rules)
+
+	m := press(t, app(t, s), "I")
+	m = pick(t, m, "ing.csv")
+	m = press(t, m, "enter", "enter")
+	got, _ := s.Load(october)
+	var ru model.Entry
+	for _, e := range got.Expenses {
+		if e.Label == "Round Up" {
+			ru = e
+		}
+	}
+	if ru.Category != model.Transfers || !ru.Auto {
+		t.Fatalf("imported round up = %+v", ru)
+	}
+
+	m.openMonth(october)
+	m.selectEntry(model.Expense, ru.ID)
+	m = press(t, m, "c")
+	m = press(t, m, typing("Savings")...)
+	m = press(t, m, "enter")
+	got, _ = s.Load(october)
+	e, _ := got.Find(model.Expense, ru.ID)
+	if e.Category != "Savings" {
+		t.Errorf("round up = %q", e.Category)
+	}
+	rules, _ = s.LoadRules()
+	if c, _ := rules.CategoryFor("ROUND UP"); c != "Savings" {
+		t.Errorf("rule = %q", c)
+	}
+}
+
+// Revolut's top-up is the other side of an ING transfer: it is not income.
+func TestRevolutTopUpIsNotIncome(t *testing.T) {
+	importHome(t)
+	s := testStore(t)
+	m := press(t, app(t, s), "I")
+	m = pick(t, m, "revolut.csv")
+	m = press(t, m, "enter")
+	mustContain(t, plain(m), "income · 1", "15,00 lei", "1 transfer, not counted")
+	m = press(t, m, "enter")
+	got, _ := s.Load(october)
+	if got.TotalIncome() != money.FromLei(15) {
+		t.Errorf("income = %v", got.TotalIncome())
+	}
+	mustContain(t, plain(m), "Top-up by *1111 · transfer, not counted")
+}
+
+// A near amount starts as "keep both", and keeping both files the bank row in
+// the plan's category, so the mortgage is not counted twice. "Unrelated"
+// leaves the row on its own.
+func TestKeepBothFilesTheRowWithThePlan(t *testing.T) {
+	for _, tc := range []struct {
+		presses  []string
+		category string
+	}{
+		{nil, "Loan"},
+		{[]string{"space"}, ""},
+	} {
+		importHome(t)
+		s := testStore(t)
+		mo := model.New(october)
+		mortgage := mo.Add(model.Expense, "Mortgage", money.FromLei(2300), true)
+		mo.SetCategory(mortgage, "Loan")
+		saveMonth(t, s, mo)
+
+		m := press(t, app(t, s), "I")
+		m = pick(t, m, "ing.csv")
+		m = press(t, m, "enter", "enter")
+		mustContain(t, plain(m), "close amount", "keep both")
+		m = press(t, m, tc.presses...)
+		if tc.category == "" {
+			mustContain(t, plain(m), "unrelated")
+		}
+		m = press(t, m, "enter")
+
+		got, _ := s.Load(october)
+		var bank model.Entry
+		for _, e := range got.Expenses {
+			if e.Payee == "RATA CREDIT" {
+				bank = e
+			}
+		}
+		if bank.Category != tc.category {
+			t.Errorf("after %v the bank row is in %q, want %q", tc.presses, bank.Category, tc.category)
+		}
+		if e, _ := got.Find(model.Expense, mortgage); !e.IsForecast() {
+			t.Errorf("the plan was replaced: %+v", e)
+		}
+	}
+}

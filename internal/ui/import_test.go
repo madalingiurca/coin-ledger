@@ -134,7 +134,7 @@ func TestImportPreviewAndCommit(t *testing.T) {
 	}
 	screen := plain(m)
 	mustContain(t, screen, "import ING", "10 transactions", "Matches the bank's balance",
-		"OCTOBER 2026", "income · 2", "12.725,00 lei", "expenses · 8",
+		"OCTOBER 2026", "income · 2", "12.725,00 lei", "expenses · 7",
 		"1 categorised", "6 uncategorised", "1 transfer, not counted", "Nothing is saved")
 	checkWidth(t, m)
 

@@ -128,10 +128,12 @@ over the other:
 So a month with no imports totals exactly its plan, and the header shows *spent so far*
 (actuals) above *left* (projected).
 
-When an imported row looks like a specific forecast entry (a remembered link, or the same
-amount) the import asks whether to **replace** it: the entry keeps its id, label, category
-and recurring flag, takes the bank's amount and date, and remembers `planned`. Or **keep
-both**, and the category's max rule still prevents double counting.
+When an imported row looks like a specific forecast entry (a remembered link, the same
+amount, or within 10%) the import asks what it is. **Replace**: the entry keeps its id,
+label, category and recurring flag, takes the bank's amount and date, and remembers
+`planned`. **Keep both**: the row is added in the plan's category, so the category's max
+rule prevents double counting. **Unrelated**: the row is added on its own. A link or the
+same amount starts as replace, a near amount as keep both.
 
 ## Recurring entries
 
@@ -160,8 +162,10 @@ Format notes, from the October 2026 exports:
   (`01 octombrie 2026`, type, amount) followed by `Key:Value` detail rows. Pages differ in
   column count and the amount sits one column left of its header, so the Debit/Credit
   columns are found again at every page header. Amounts are `1.384,95`. The counterparty
-  is the card `Terminal` without its country and city, else `Beneficiar` / `Ordonator`,
-  else the transaction type; Round Ups are labelled "Round Up". The `.xls` export is the
+  is the card `Terminal` without its country and city, and without the store number,
+  booking reference or order number that would make one shop many ("MOL 91022", "BOLT.EUO2601010001"),
+  else `Beneficiar` / `Ordonator`, else the transaction type; Round Ups are labelled "Round Up"
+  and cash withdrawals "Cash withdrawal". The `.xls` export is the
   same layout in an xlsx and the PDF is layout text; neither is supported.
 - **Revolut CSV** is one row per transaction with a fixed header, ISO dates and signed
   `-117.13` amounts. Only `COMPLETED` rows in RON are imported; the fee is part of the

@@ -55,8 +55,12 @@ type Entry struct {
 	Label     string       `json:"label"`
 	Amount    money.Amount `json:"amount"`
 	Recurring bool         `json:"recurring"`
-	// Category groups expenses. Empty means uncategorised.
+	// Category groups expenses. Empty means uncategorised. Income has none,
+	// except Transfers: money arriving from the user's own account.
 	Category string `json:"category,omitempty"`
+	// Auto marks a category a payee rule chose. A changed rule may move the
+	// entry again; a category picked by hand is never moved.
+	Auto bool `json:"auto,omitempty"`
 	// Planned is the forecast amount this actual entry replaced, kept so the
 	// difference stays visible. Zero when nothing was replaced.
 	Planned money.Amount `json:"planned,omitempty"`
@@ -102,6 +106,8 @@ type Imported struct {
 	Source   string
 	Key      string
 	Category string
+	// Auto says the category came from a payee rule.
+	Auto bool
 }
 
 // Key identifies a month. It is the file name and the unit of navigation.
@@ -442,6 +448,7 @@ func (m *Month) SetCategory(id, category string) error {
 	for i := range m.Expenses {
 		if m.Expenses[i].ID == id {
 			m.Expenses[i].Category = strings.TrimSpace(category)
+			m.Expenses[i].Auto = false
 			return nil
 		}
 	}
@@ -479,8 +486,9 @@ func (m *Month) AddImported(kind Kind, imp Imported) (string, bool) {
 		Source: imp.Source,
 		Key:    imp.Key,
 	}
-	if kind == Expense {
+	if kind == Expense || imp.Category == Transfers {
 		e.Category = imp.Category
+		e.Auto = imp.Auto && imp.Category != ""
 	}
 	*m.list(kind) = append(*m.list(kind), e)
 	return e.ID, true
@@ -510,6 +518,7 @@ func (m *Month) ReplaceForecast(kind Kind, id string, imp Imported) error {
 		e.Key = imp.Key
 		if kind == Expense && e.Category == "" {
 			e.Category = imp.Category
+			e.Auto = imp.Auto && imp.Category != ""
 		}
 		return nil
 	}
