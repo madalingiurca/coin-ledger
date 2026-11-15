@@ -219,3 +219,17 @@ func (m *Month) RenameCategory(from, to string) int {
 	}
 	return n
 }
+
+// SetLinkIfNew remembers a link and reports whether anything changed.
+func (r *Rules) SetLinkIfNew(payee, label string) bool {
+	if NormalizePayee(payee) == "" || strings.TrimSpace(label) == "" {
+		return false
+	}
+	for _, l := range r.Links {
+		if l.Match == NormalizePayee(payee) && l.Label == strings.TrimSpace(label) {
+			return false
+		}
+	}
+	r.SetLink(payee, label)
+	return true
+}

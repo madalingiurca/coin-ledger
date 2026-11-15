@@ -178,3 +178,46 @@ func (s *Store) UncategorisedPayees() ([]PayeeSummary, error) {
 	})
 	return out, nil
 }
+
+// PayeeEntry is one uncategorised expense of a payee, with the month it is in.
+type PayeeEntry struct {
+	Key   model.Key
+	Entry model.Entry
+}
+
+// PayeeEntries lists the uncategorised expenses of one payee across every
+// month on disk, newest first, for filing one at a time.
+func (s *Store) PayeeEntries(payee string) ([]PayeeEntry, error) {
+	keys, err := s.Keys()
+	if err != nil {
+		return nil, err
+	}
+	var out []PayeeEntry
+	for _, k := range keys {
+		m, err := s.Load(k)
+		if err != nil {
+			continue
+		}
+		var month []PayeeEntry
+		for _, e := range m.Expenses {
+			if e.Category == "" && e.Payee == payee {
+				month = append(month, PayeeEntry{Key: k, Entry: e})
+			}
+		}
+		slices.SortStableFunc(month, func(a, b PayeeEntry) int { return strings.Compare(b.Entry.Date, a.Entry.Date) })
+		out = append(out, month...)
+	}
+	return out, nil
+}
+
+// SetCategory files one expense of a month on disk.
+func (s *Store) SetCategory(k model.Key, id, category string) error {
+	m, err := s.Load(k)
+	if err != nil {
+		return err
+	}
+	if err := m.SetCategory(id, category); err != nil {
+		return err
+	}
+	return s.Save(m)
+}

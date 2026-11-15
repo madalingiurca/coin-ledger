@@ -172,3 +172,22 @@ func TestMonthRenameCategory(t *testing.T) {
 		t.Errorf("renamed %d, category %q", n, m.Expenses[0].Category)
 	}
 }
+
+func TestSetLinkIfNew(t *testing.T) {
+	r := NewRules()
+	if !r.SetLinkIfNew("Rata Credit", "Mortgage") {
+		t.Error("a new link reported no change")
+	}
+	if r.SetLinkIfNew("rata credit", "Mortgage") {
+		t.Error("the same link reported a change")
+	}
+	if !r.SetLinkIfNew("Rata Credit", "Home loan") {
+		t.Error("a changed link reported no change")
+	}
+	if r.SetLinkIfNew("", "x") || r.SetLinkIfNew("x", "") {
+		t.Error("a blank link reported a change")
+	}
+	if len(r.Links) != 1 {
+		t.Errorf("links = %+v", r.Links)
+	}
+}

@@ -21,7 +21,11 @@ const (
 // (entryID empty), where the only possible outcome is a rule.
 type catState struct {
 	entryID string
-	title   string
+	// elsewhere is the month the entry lives in when that is not the month on
+	// screen, as when filing a payee's transactions one by one.
+	elsewhere *model.Key
+	label     string
+	title     string
 	// payee is the normalised payee a rule can be made for; empty for a
 	// hand-typed expense, which has none.
 	payee string
@@ -161,6 +165,7 @@ func (c *catState) chosen() (category, match string, ok bool) {
 // openCategorise opens the dialog for an expense on the month screen.
 func (m *Model) openCategorise(e model.Entry) {
 	m.cat = newCat(m.theme, "Categorise "+e.Label, e.ID, e.Payee, e.Category, m.categoryNames())
+	m.cat.label = e.Label
 }
 
 func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -199,9 +204,8 @@ func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		entryID := c.entryID
 		m.cat = nil
-		m.applyCategory(entryID, category, match)
+		m.applyCategory(c.entryID, c.elsewhere, c.label, category, match)
 		return m, nil
 	}
 
@@ -219,15 +223,29 @@ func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // applyCategory carries out the dialog: files the expense, and when match is
 // set remembers the payee and files every other uncategorised expense from it,
 // in every month.
-func (m *Model) applyCategory(entryID, category, match string) {
+func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, category, match string) {
 	category = m.useCategory(category)
 	shown := category
 	if shown == "" {
 		shown = "Uncategorised"
 	}
 
-	label := match
-	if entryID != "" {
+	if label == "" {
+		label = match
+	}
+	switch {
+	case entryID != "" && elsewhere != nil:
+		if err := m.store.SetCategory(*elsewhere, entryID, category); err != nil {
+			m.setError(err)
+			return
+		}
+		if m.dash.key == *elsewhere && m.dash.onDisk {
+			m.openMonth(m.dash.key)
+		}
+		if m.payees.detail != nil {
+			m.loadPayeeDetail()
+		}
+	case entryID != "":
 		e, ok := m.dash.month.Find(model.Expense, entryID)
 		if !ok {
 			return
@@ -244,6 +262,9 @@ func (m *Model) applyCategory(entryID, category, match string) {
 	}
 	if match == "" {
 		m.setStatus("%s → %s", label, shown)
+		if m.screen == screenPayees && m.payees.detail == nil {
+			m.loadPayees()
+		}
 		return
 	}
 
@@ -272,19 +293,21 @@ func (m *Model) applyCategory(entryID, category, match string) {
 	}
 	if m.screen == screenPayees {
 		m.loadPayees()
+		if m.payees.detail != nil {
+			m.loadPayeeDetail()
+		}
 	}
 
 	switch {
-	case sweep.Entries == 0:
-		m.setStatus("%s → %s · remembered for next time", label, shown)
-	case sweep.Entries == 1:
-		m.setStatus("%s → %s · 1 more entry filed", label, shown)
-	default:
-		m.setStatus("%s → %s · %s more entries filed", label, shown, itoa(sweep.Entries))
-	}
-	if entryID == "" {
+	case elsewhere != nil:
+		m.setStatus("%s → %s · %s filed", label, shown, plural(sweep.Entries+1, "entry", "entries"))
+	case entryID == "":
 		// From the payees screen every filed entry is news, not "more".
 		m.setStatus("%s → %s · %s filed", label, shown, plural(sweep.Entries, "entry", "entries"))
+	case sweep.Entries == 0:
+		m.setStatus("%s → %s · remembered for next time", label, shown)
+	default:
+		m.setStatus("%s → %s · %s filed", label, shown, plural(sweep.Entries, "more entry", "more entries"))
 	}
 }
 

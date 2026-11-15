@@ -372,8 +372,10 @@ func TestUncategorisedPayeesScreen(t *testing.T) {
 
 	screen = plain(m)
 	mustContain(t, screen, "1 payee", "Lidl", "2 entries filed")
-	if strings.Contains(screen, "  Bolt") {
-		t.Errorf("Bolt is still listed:\n%s", screen)
+	for _, r := range m.payees.rows {
+		if r.Payee == "BOLT" {
+			t.Errorf("Bolt is still listed:\n%s", screen)
+		}
 	}
 	for _, k := range []model.Key{october.Prev(), october} {
 		got, _ := s.Load(k)

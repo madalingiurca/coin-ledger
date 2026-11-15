@@ -22,7 +22,7 @@ func (m Model) helpView(cw int) string {
 		[2]string{"d", "delete the selected entry"},
 		[2]string{"r", "carry this entry into future months"},
 		[2]string{"c", "put the selected expense in a category"},
-		[2]string{"u", "payees that have no category yet"},
+		[2]string{"u", "payees that have no category yet (→ on one to file it one by one)"},
 		[2]string{"enter, space", "on a category: fold or unfold it"},
 		[2]string{"↑ ↓, j k", "move the cursor"},
 	)
