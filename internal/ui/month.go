@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -58,10 +59,8 @@ func (d dash) rows() []row {
 	}
 	// Money moved in from your own accounts is listed after real income.
 	for _, transfers := range []bool{false, true} {
-		for i, e := range d.month.Income {
-			if e.IsTransfer() == transfers {
-				out = append(out, row{kind: model.Income, index: i})
-			}
+		for _, i := range byDay(d.month.Income, func(e model.Entry) bool { return e.IsTransfer() == transfers }) {
+			out = append(out, row{kind: model.Income, index: i})
 		}
 	}
 
@@ -69,7 +68,7 @@ func (d dash) rows() []row {
 	case len(d.month.Expenses) == 0:
 		out = append(out, row{kind: model.Expense, index: -1})
 	case !d.grouped():
-		for i := range d.month.Expenses {
+		for _, i := range byDay(d.month.Expenses, func(model.Entry) bool { return true }) {
 			out = append(out, row{kind: model.Expense, index: i})
 		}
 	default:
@@ -78,14 +77,27 @@ func (d dash) rows() []row {
 			if d.collapsed[c.Name] {
 				continue
 			}
-			for i, e := range d.month.Expenses {
-				if e.Category == c.Name {
-					out = append(out, row{kind: model.Expense, index: i, cat: c.Name})
-				}
+			for _, i := range byDay(d.month.Expenses, func(e model.Entry) bool { return e.Category == c.Name }) {
+				out = append(out, row{kind: model.Expense, index: i, cat: c.Name})
 			}
 		}
 	}
 	return out
+}
+
+// byDay lists the indexes of the entries that pass keep, in the order they
+// are shown: planned entries first, as they have no day, then bank rows by
+// day. An import adds one bank's rows after another's, so file order would
+// cluster them by statement rather than by when the money moved.
+func byDay(entries []model.Entry, keep func(model.Entry) bool) []int {
+	var idx []int
+	for i, e := range entries {
+		if keep(e) {
+			idx = append(idx, i)
+		}
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return entries[idx[a]].Date < entries[idx[b]].Date })
+	return idx
 }
 
 func (d dash) current() (row, bool) {

@@ -331,3 +331,24 @@ func TestKeepBothFilesTheRowWithThePlan(t *testing.T) {
 		}
 	}
 }
+
+// Bank rows are listed by day, whichever statement they came from, with the
+// planned entries first.
+func TestEntriesAreListedByDay(t *testing.T) {
+	mo := model.New(october)
+	plan := mo.Add(model.Expense, "Groceries budget", money.FromLei(500), true)
+	mo.SetCategory(plan, "Food")
+	for _, r := range []struct{ label, date string }{{"Late", "2026-10-20"}, {"Early", "2026-10-02"}, {"Middle", "2026-10-11"}} {
+		mo.AddImported(model.Expense, model.Imported{Label: r.label, Amount: money.FromLei(10), Date: r.date,
+			Payee: strings.ToUpper(r.label), Source: model.SourceING, Key: r.label, Category: "Food"})
+	}
+	var got []string
+	for _, row := range (dash{month: mo}).rows() {
+		if row.index >= 0 && row.kind == model.Expense {
+			got = append(got, mo.Expenses[row.index].Label)
+		}
+	}
+	if want := "Groceries budget Early Middle Late"; strings.Join(got, " ") != want {
+		t.Errorf("order = %v, want %s", got, want)
+	}
+}
