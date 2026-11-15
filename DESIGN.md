@@ -122,7 +122,7 @@ over the other:
   and spend 1.230 and the month still expects 1.500; spend 1.700 and it counts 1.700. A plan
   and the bank rows that fulfil it are never counted twice.
 - **Uncategorised forecast and actual add up**, because nothing ties them together.
-- **Income** works the same way as one group.
+- **Income** adds up: planned and received are not tied together, so a typed salary counts beside the transfers the bank reports. A bank row that is the salary should replace it in the import.
 - **Transfers** count for nothing.
 
 So a month with no imports totals exactly its plan, and the header shows *spent so far*
@@ -183,7 +183,11 @@ and totals in place.
 **Categorise** (`c` on an expense). Pick a category or type a new one. For an imported
 expense the dialog also offers to remember the payee: the match text starts as the whole
 payee and can be shortened, and with the box ticked every uncategorised expense from that
-payee, in every month, is filed too. Untick it to file just this one.
+payee, in every month, is filed too. The box starts unticked: only this one is filed.
+
+**Rename a category** (`e` on its header). The new name replaces the old in the category list,
+in every payee rule and in every month on disk; naming it after an existing category merges
+the two. Transfers is built in and cannot be renamed.
 
 **Uncategorised payees** (`u`). Every payee with uncategorised expenses, across all months,
 with count and total. `enter` gives the payee a category for good. `→` opens it to file its

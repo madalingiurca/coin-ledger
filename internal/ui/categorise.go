@@ -47,7 +47,7 @@ type catState struct {
 }
 
 func newCat(t Theme, title, entryID, payee, current string, categories []string) *catState {
-	c := &catState{entryID: entryID, title: title, payee: payee, applyAll: true}
+	c := &catState{entryID: entryID, title: title, payee: payee}
 	if entryID != "" {
 		c.options = append(c.options, "")
 	}

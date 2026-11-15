@@ -44,6 +44,7 @@ type Model struct {
 	imp     *importState
 	form    *formState
 	cat     *catState
+	rename  *renameState
 	confirm *confirmState
 	help    bool
 
@@ -74,6 +75,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.form != nil {
 			m.form.restyle(m.theme)
 		}
+		if m.rename != nil {
+			m.rename.restyle(m.theme)
+		}
 		if m.cat != nil {
 			m.cat.restyle(m.theme)
 		}
@@ -100,6 +104,8 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.form != nil:
 		return m.formKey(msg)
+	case m.rename != nil:
+		return m.renameKey(msg)
 	case m.cat != nil:
 		return m.catKey(msg)
 	case m.confirm != nil:
@@ -176,6 +182,8 @@ func (m Model) render() string {
 		switch {
 		case m.form != nil:
 			below = t.Form.Width(cw + boxChrome).Render(m.form.view(t, cw))
+		case m.rename != nil:
+			below = t.Form.Width(cw + boxChrome).Render(m.rename.view(t, cw))
 		case m.cat != nil:
 			below = t.Form.Width(cw + boxChrome).Render(m.cat.view(t, cw))
 		case m.confirm != nil:

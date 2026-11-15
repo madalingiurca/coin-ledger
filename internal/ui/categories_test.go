@@ -203,7 +203,7 @@ func TestCategorisingAPayeeFilesItEverywhere(t *testing.T) {
 	checkWidth(t, m)
 
 	m = press(t, m, typing("Transport")...)
-	m = press(t, m, "enter")
+	m = press(t, m, "tab", "tab", "space", "enter") // tick "every expense"
 	if m.cat != nil {
 		t.Fatalf("dialog still open: %q", m.cat.err)
 	}
@@ -241,7 +241,10 @@ func TestCategoriseOnlyThisEntry(t *testing.T) {
 	m := appOn(t, s, october, testW, testH)
 	m = press(t, m, "down", "c")
 	m = press(t, m, typing("Transport")...)
-	m = press(t, m, "tab", "tab", "space", "enter") // untick "every expense"
+	if m.cat.applyAll {
+		t.Error("\"every expense\" starts ticked")
+	}
+	m = press(t, m, "enter") // "every expense" is off unless ticked
 
 	if a, b := m.dash.month.Expenses[0].Category, m.dash.month.Expenses[1].Category; a != "Transport" || b != "" {
 		t.Errorf("categories = %q / %q", a, b)
@@ -262,7 +265,7 @@ func TestCategoriseWithAShorterMatch(t *testing.T) {
 	m := appOn(t, s, october, testW, testH)
 	m = press(t, m, "down", "c")
 	m = press(t, m, typing("Groceries")...)
-	m = press(t, m, "tab")
+	m = press(t, m, "tab", "tab", "space", "up") // tick, then back to the match
 	for range len(" LUJERULUI") {
 		m = press(t, m, "backspace")
 	}
@@ -288,7 +291,7 @@ func TestCategoriseRejectsBadInput(t *testing.T) {
 	}
 
 	m = press(t, m, typing("Transport")...)
-	m = press(t, m, "tab")
+	m = press(t, m, "tab", "tab", "space", "up")
 	m = press(t, m, typing("x")...) // BOLTX is not in BOLT
 	m = press(t, m, "enter")
 	if m.cat == nil || !strings.Contains(plain(m), "does not contain") {
@@ -487,5 +490,77 @@ func TestDaysAreBucketed(t *testing.T) {
 	}
 	if strings.Count(screen, "Sun 11 Oct") != 1 || !strings.Contains(screen, "20,00") {
 		t.Errorf("the day appears once with its total 20,00:\n%s", screen)
+	}
+}
+
+func TestRenamingACategoryEverywhere(t *testing.T) {
+	s := testStore(t)
+	for _, k := range []model.Key{october, october.Prev()} {
+		mo := model.New(k)
+		id := mo.Add(model.Expense, "Groceries budget", money.FromLei(100), false)
+		mo.SetCategory(id, "Food")
+		mo.AddImported(model.Expense, bank("k"+k.String(), "Lidl", 40, "Food"))
+		saveMonth(t, s, mo)
+	}
+	rules, _ := s.LoadRules()
+	rules.AddCategory("Food")
+	rules.SetRule("Lidl", "Food")
+	s.SaveRules(rules)
+
+	m := appOn(t, s, october, testW, testH)
+	// The cursor starts on the first category header, which is Food.
+	for i, r := range m.dash.rows() {
+		if r.header && r.cat == "Food" {
+			m.dash.cursor = i
+		}
+	}
+	mustContain(t, plain(m), "e rename")
+	m = press(t, m, "e")
+	if m.rename == nil {
+		t.Fatalf("e on a header did not open the rename dialog:\n%s", plain(m))
+	}
+	mustContain(t, plain(m), "Rename Food")
+	m = press(t, m, "backspace", "backspace", "backspace", "backspace") // "Food"
+	m = press(t, m, typing("Groceries")...)
+	m = press(t, m, "enter")
+	if m.rename != nil {
+		t.Fatalf("dialog still open: %q", m.rename.err)
+	}
+	mustContain(t, plain(m), "Groceries (2)", "Food → Groceries")
+
+	for _, k := range []model.Key{october, october.Prev()} {
+		got, _ := s.Load(k)
+		for _, e := range got.Expenses {
+			if e.Category != "Groceries" {
+				t.Errorf("%s: %q is in %q", k, e.Label, e.Category)
+			}
+		}
+	}
+	rules, _ = s.LoadRules()
+	if c, _ := rules.CategoryFor("LIDL"); c != "Groceries" {
+		t.Errorf("rule = %q", c)
+	}
+	for _, c := range rules.Categories {
+		if c == "Food" {
+			t.Error("the old name is still listed")
+		}
+	}
+}
+
+// Transfers is built in and has nothing to rename.
+func TestTransfersCannotBeRenamed(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Revolut**1", 50, model.Transfers))
+	saveMonth(t, s, mo)
+	m := appOn(t, s, october, testW, testH)
+	for i, r := range m.dash.rows() {
+		if r.header && r.cat == model.Transfers {
+			m.dash.cursor = i
+		}
+	}
+	m = press(t, m, "e")
+	if m.rename != nil {
+		t.Error("Transfers opened the rename dialog")
 	}
 }

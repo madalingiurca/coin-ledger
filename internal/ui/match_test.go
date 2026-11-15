@@ -260,7 +260,7 @@ func TestChangingAPayeeRuleMovesItsEntries(t *testing.T) {
 	m.selectEntry(model.Expense, ru.ID)
 	m = press(t, m, "c")
 	m = press(t, m, typing("Savings")...)
-	m = press(t, m, "enter")
+	m = press(t, m, "tab", "tab", "space", "enter") // remember the payee
 	got, _ = s.Load(october)
 	e, _ := got.Find(model.Expense, ru.ID)
 	if e.Category != "Savings" {

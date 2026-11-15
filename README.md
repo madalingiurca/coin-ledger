@@ -14,7 +14,7 @@ It takes no arguments and no flags. Everything happens on screen:
 | Key | |
 |---|---|
 | `a` / `i` / `x` | add (to the section under the cursor / income / expense) |
-| `e`, `enter` | edit; on a category header, `enter` or `space` folds it |
+| `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` folds it |
 | `d` | delete |
 | `r` | carry the entry into future months (`↻`) |
 | `c` | put an expense in a category, and optionally every expense from its payee |

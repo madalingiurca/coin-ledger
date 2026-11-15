@@ -245,22 +245,17 @@ func (m *Month) Entries(kind Kind) []Entry { return *m.list(kind) }
 // come to once forecasts and actuals are laid over each other. A month with no
 // imported entries totals exactly as its forecast.
 //
-// Income is treated as one group and expenses per category; each group counts
-// the larger of its forecast and its actual, so a forecast and the bank rows
-// that fulfil it are not counted twice. Uncategorised expenses have nothing
-// tying them together, so there forecast and actual simply add up. Transfers
-// are left out.
+// Expenses count per category; each category counts the larger of its
+// forecast and its actual, so a forecast and the bank rows that fulfil it are
+// not counted twice. Uncategorised expenses have nothing tying them together,
+// so there forecast and actual simply add up. Income has no categories to tie
+// anything together either, so what you planned and what arrived add up: a
+// salary you typed counts beside the transfers the bank reports, and a bank
+// row that is the salary replaces it in the import instead. Transfers are
+// left out.
 func (m *Month) Total(kind Kind) money.Amount {
 	if kind == Income {
-		var forecast, actual money.Amount
-		for _, e := range m.Income {
-			if e.IsTransfer() {
-				continue
-			}
-			forecast += e.Forecast()
-			actual += e.Actual()
-		}
-		return max(forecast, actual)
+		return m.ForecastTotal(Income) + m.ActualTotal(Income)
 	}
 	var sum money.Amount
 	for _, c := range m.Categories() {

@@ -208,6 +208,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		}
 		fallthrough
 	case "e":
+		if r, ok := m.dash.current(); ok && r.header {
+			m.openRename(r.cat)
+			return m, nil
+		}
 		if kind, entry, ok := m.dash.currentEntry(); ok {
 			m.form = newForm(m.theme, kind, &entry, entry.Category, m.categoryNames())
 		}
@@ -322,9 +326,13 @@ func (m Model) monthHints() []hint {
 	if m.dash.loadErr != nil {
 		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit")}
 	}
+	edit := "edit"
+	if r, ok := m.dash.current(); ok && r.header {
+		edit = "rename"
+	}
 	return []hint{
 		keyHint("a", "add"),
-		keyHint("e", "edit"),
+		keyHint("e", edit),
 		keyHint("d", "delete"),
 		keyHint("r", "recurring"),
 		keyHint("c", "categorise"),

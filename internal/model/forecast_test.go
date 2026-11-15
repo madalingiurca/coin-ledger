@@ -116,11 +116,11 @@ func TestCategoriesOrder(t *testing.T) {
 	}
 }
 
-func TestIncomeCountsTheLargerOfForecastAndActual(t *testing.T) {
+func TestIncomeAddsForecastAndActual(t *testing.T) {
 	m := New(Key{2026, time.October})
 	m.Add(Income, "Salary", lei(12000), true)
 	m.AddImported(Income, bankRow("k1", "Employer", lei(12500), ""))
-	if got := m.TotalIncome(); got != lei(12500) {
+	if got := m.TotalIncome(); got != lei(24500) {
 		t.Errorf("income = %v", got)
 	}
 	if got := m.ActualTotal(Income); got != lei(12500) {
@@ -335,5 +335,16 @@ func TestCloseAmountMatches(t *testing.T) {
 	}
 	if got := m.ForecastMatches(Expense, bankRow("k3", "Cafe", lei(21), ""), nil); len(got) != 0 {
 		t.Errorf("a small forecast matched a near amount: %+v", got)
+	}
+}
+
+// A salary typed in does not hide what else arrived: income adds up.
+func TestTypedSalaryCountsBesideBankIncome(t *testing.T) {
+	m := New(Key{2026, time.November})
+	m.Add(Income, "Salary", lei(15000), true)
+	m.AddImported(Income, bankRow("k1", "Friend", lei(29), ""))
+	m.AddImported(Income, bankRow("k2", "Refund", lei(212), ""))
+	if got := m.TotalIncome(); got != lei(15241) {
+		t.Errorf("income = %v, want 15.241,00", got)
 	}
 }

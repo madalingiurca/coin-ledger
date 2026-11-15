@@ -349,7 +349,9 @@ func (m *Model) matchForecasts(im *importMonth, source string) {
 				e := c.Entry
 				// A near amount is only a guess: the plan is kept beside it.
 				r.match, r.reason, r.choice = &e, c.Reason, pairReplace
-				if c.Reason == model.MatchClose {
+				// Income has no category to tie a kept plan to, so keeping both
+				// would count it twice: only expenses default to keep both.
+				if c.Reason == model.MatchClose && r.txn.Kind == model.Expense {
 					r.choice = pairKeep
 				}
 				claimed[e.ID] = true
