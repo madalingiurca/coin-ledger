@@ -205,11 +205,17 @@ their bottom border, and the screen behind keeps its place.
 **Month** (home). Income and expenses are two panes, one over the other: income sized to
 what it holds (at most a third of the height), expenses taking the rest. The pane holding
 the cursor is the focused one, and `tab` moves the cursor to the next. A Totals pane sits
-beside them from 100 columns up, and a Left pane under them below that. Income, then expenses under category headers
+beside them from 100 columns up, and a Left pane under them below that. The panes fill
+the terminal whatever its size, with no maximum width; the column beside the month takes
+a third of it. Below its figures the Totals pane fills the rest of that column with the
+month's spending by category, largest first, each as a bar of its share of the expenses.
+A dim dotted leader (`Bolt ········ 27,00`) runs from each entry, category, payee and
+total to its amount, so a wide pane stays easy to read across; a recurring entry's `↻`
+sits on that leader in one column. Section and day headings keep plain space. Income, then expenses under category headers
 (`▸ Groceries (3)  1.230,00 of 1.500,00`), Transfers last. Expenses with no category
 are not a category there but a To categorise pane of their own, laid out by day and always
-open: beside the month above the Totals when the terminal has 44 columns to spare for it,
-otherwise between income and expenses. `tab` visits income, To categorise and expenses in
+open: beside the month above the Totals, only as tall as what it lists, when the terminal
+has 44 columns to spare for it and 70 for the month, otherwise between income and expenses. `tab` visits income, To categorise and expenses in
 turn. Categories start folded, header and total only; `enter` or `space` on a header unfolds it (`▾`), and it stays unfolded while paging months. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and

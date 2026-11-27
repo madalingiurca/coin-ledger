@@ -164,17 +164,18 @@ func (m Model) payeesView(cw, maxH int) string {
 
 	var body []string
 	for i, r := range p.rows {
-		label := padRight(truncate(r.Label, labelW-1), labelW)
+		label := truncate(r.Label, labelW-1)
 		times := ""
 		if timesW > 0 {
 			times = padLeft(itoa(r.Count), timesW)
 		}
 		amount := padLeft(r.Total.String(), amtW)
+		dots := leader(labelW - lipgloss.Width(label))
 		if i == p.cursor {
-			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+times+amount, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+dots+times+amount, cw)))
 			continue
 		}
-		body = append(body, t.Label.Render("  "+label)+t.Muted.Render(times)+t.Amount.Render(amount))
+		body = append(body, t.Label.Render("  "+label)+t.Leader.Render(dots)+t.Muted.Render(times)+t.Amount.Render(amount))
 	}
 
 	tail := []string{"", wrap(t.Muted, cw,
@@ -207,13 +208,14 @@ func (m Model) payeeDetailView(cw, maxH int) string {
 		} else {
 			when = r.Key.Label()
 		}
-		label := padRight(truncate(when, labelW-1), labelW)
-		amount := padLeft(r.Entry.Amount.String(), amtW)
+		label := truncate(when, labelW-1)
+		amount := r.Entry.Amount.String()
+		dots := leader(cw - 2 - lipgloss.Width(label) - lipgloss.Width(amount))
 		if i == d.cursor {
-			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+amount, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+dots+amount, cw)))
 			continue
 		}
-		body = append(body, t.Label.Render("  "+label)+t.Amount.Render(amount))
+		body = append(body, t.Label.Render("  "+label)+t.Leader.Render(dots)+t.Amount.Render(amount))
 	}
 	tail := []string{"", wrap(t.Muted, cw, "Each transaction you file here keeps its own category; nothing is remembered for the payee unless you tick it in the dialog.")}
 	if maxH > 0 {

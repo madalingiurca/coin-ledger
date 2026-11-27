@@ -616,7 +616,7 @@ func (m Model) monthTotals(cw int, full bool) string {
 				name = "Expenses"
 			}
 			amount := m.dash.month.Total(kind).String()
-			lines = append(lines, t.Label.Render(padRight(name, cw-lipgloss.Width(amount)))+t.Amount.Render(amount))
+			lines = append(lines, leaderRow(t, name, t.Label, amount, t.Amount, cw))
 		}
 	}
 	if m.dash.month.HasActuals() {
@@ -749,20 +749,19 @@ func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string
 	if lipgloss.Width(right) > cw/2 {
 		right = c.Projected.String()
 	}
-	leftW := max(0, cw-lipgloss.Width(right))
-	left = padRight(truncate(left, max(0, leftW-1)), leftW)
-
+	rightStyle := t.Total
 	switch {
 	case selected:
-		return t.Selected.Bold(true).Render(padRight(left+right, cw))
+		left = truncate(left, max(0, cw-lipgloss.Width(right)-2))
+		return t.Selected.Bold(true).Render(padRight(left+leader(cw-lipgloss.Width(left)-lipgloss.Width(right))+right, cw))
 	case c.Name == model.Transfers:
-		return t.Muted.Render(left + right)
+		return leaderRow(t, left, t.Muted, right, t.Muted, cw)
 	case c.Name == "" && c.Actual > 0:
-		return t.Warning.Render(left) + t.Total.Render(right)
+		return leaderRow(t, left, t.Warning, right, rightStyle, cw)
 	case c.Forecast > 0 && c.Actual > c.Forecast:
-		return t.Section.Render(left) + t.Negative.Render(right)
+		rightStyle = t.Negative
 	}
-	return t.Section.Render(left) + t.Total.Render(right)
+	return leaderRow(t, left, t.Section, right, rightStyle, cw)
 }
 
 // spentLine separates what the bank has already reported from the projection
@@ -770,7 +769,7 @@ func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string
 func (m Model) spentLine(cw int) string {
 	t := m.theme
 	amount := m.dash.month.Spent().Lei()
-	return t.Muted.Render(padRight("spent so far", cw-lipgloss.Width(amount)) + amount)
+	return leaderRow(t, "spent so far", t.Muted, amount, t.Muted, cw)
 }
 
 // monthNote explains an unsaved month: where its entries came from.
@@ -869,10 +868,6 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.kind == model.Expense && m.dash.marked[e.ID] {
 		lead = lead[:len(lead)-2] + "✓ "
 	}
-	marker := "  "
-	if e.Recurring {
-		marker = " ↻"
-	}
 	text := e.Label
 	switch {
 	case bucketed:
@@ -894,22 +889,36 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	}
 	note, awaiting := m.refundNote(r.kind, e)
 	text += note
+	// A dotted leader runs from the label to the amount. A recurring entry's
+	// ↻ sits on it, in the same column on every row, just left of the amount
+	// column.
 	labelW -= lipgloss.Width(lead) - 2
-	label := padRight(truncate(text, labelW), labelW)
-	amount := padLeft(e.Amount.String(), amtW)
-
+	label := truncate(text, labelW)
+	amount := e.Amount.String()
+	from := lipgloss.Width(lead) + lipgloss.Width(label)
+	gap := []rune(leader(cw - from - lipgloss.Width(amount)))
+	before, marker, after := string(gap), "", ""
+	if at := cw - amtW - 1 - from; e.Recurring && at >= 0 && at < len(gap) {
+		before, marker, after = string(gap[:at]), "↻", string(gap[at+1:])
+	} else if e.Recurring {
+		label = truncate(label, max(1, labelW-2))
+		before, marker, after = " ", "↻", string([]rune(leader(cw-lipgloss.Width(lead)-lipgloss.Width(label)-2-lipgloss.Width(amount))))
+	}
+	dots := before + marker + after
 	if selected {
-		return t.Selected.Bold(true).Render(padRight(lead+label+marker+amount, cw))
+		return t.Selected.Bold(true).Render(padRight(lead+label+dots+amount, cw))
 	}
 	notCounted := (r.kind == model.Income && e.IsTransfer()) || (e.IsLinked() && e.Counted() <= 0)
+	labelStyle, amountStyle := t.Label, t.Amount
 	switch {
 	case (e.IsForecast() && m.dash.month.HasActuals()) || notCounted:
 		// Still only expected, or not counted at all.
-		return t.Marker.Render(lead) + t.Muted.Render(label) + t.Marker.Render(marker) + t.Muted.Render(amount)
+		labelStyle, amountStyle = t.Muted, t.Muted
 	case awaiting:
-		return t.Marker.Render(lead) + t.Warning.Render(label) + t.Marker.Render(marker) + t.Amount.Render(amount)
+		labelStyle = t.Warning
 	}
-	return t.Marker.Render(lead) + t.Label.Render(label) + t.Marker.Render(marker) + t.Amount.Render(amount)
+	return t.Marker.Render(lead) + labelStyle.Render(label) + t.Leader.Render(before) + t.Marker.Render(marker) +
+		t.Leader.Render(after) + amountStyle.Render(amount)
 }
 
 // refundNote says how an entry stands with reimbursements: a refund and how
@@ -949,7 +958,7 @@ func (m Model) awaitingLine(cw int) string {
 		return ""
 	}
 	amount := sum.Lei()
-	return m.theme.Warning.Render(padRight("still to come back", cw-lipgloss.Width(amount)) + amount)
+	return leaderRow(m.theme, "still to come back", m.theme.Warning, amount, m.theme.Warning, cw)
 }
 
 // entryColumns splits a row between its amount and its label. The amount
@@ -970,7 +979,7 @@ func (m Model) leftLine(cw int) string {
 		name, style = "OVER BUDGET", t.Negative
 	}
 	amount := left.Lei()
-	return t.Total.Render(padRight(name, cw-lipgloss.Width(amount))) + style.Render(amount)
+	return leaderRow(t, name, t.Total, amount, style, cw)
 }
 
 func (m Model) leftBar(cw int) string {

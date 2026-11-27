@@ -78,6 +78,25 @@ func spread(left, right string, w int) (string, string) {
 	return padRight(truncate(left, w-rw), w-rw), right
 }
 
+// leader fills n cells between a label and its amount: a space at each end
+// and dots between, or just spaces when there is no room for a dot.
+func leader(n int) string {
+	if n < 3 {
+		return strings.Repeat(" ", max(0, n))
+	}
+	return " " + strings.Repeat("·", n-2) + " "
+}
+
+// leaderRow puts left and right on one line of exactly w cells, joined by a
+// dim dotted leader. left is cut to fit; right never is. It takes plain text
+// and the style for each side, since slicing a styled string would cut an
+// escape sequence in half.
+func leaderRow(t Theme, left string, ls lipgloss.Style, right string, rs lipgloss.Style, w int) string {
+	rw := lipgloss.Width(right)
+	left = truncate(left, max(0, w-rw-2))
+	return ls.Render(left) + t.Leader.Render(leader(w-lipgloss.Width(left)-rw)) + rs.Render(right)
+}
+
 // wrap renders prose across as many lines as it needs. Sentences are wrapped
 // rather than truncated: an explanation that loses its tail to an ellipsis has
 // stopped explaining anything.

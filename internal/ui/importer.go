@@ -676,7 +676,7 @@ func (m Model) previewView(cw int) string {
 		}
 		line := func(label string, amount money.Amount, style lipgloss.Style) string {
 			a := amount.Lei()
-			return style.Render(padRight("  "+label, cw-lipgloss.Width(a))) + t.Amount.Render(a)
+			return style.Render("  ") + leaderRow(t, label, style, a, t.Amount, max(1, cw-2))
 		}
 		counted := func(kind model.Kind) func(importRow) bool {
 			return func(r importRow) bool { return r.txn.Kind == kind && r.category != model.Transfers }

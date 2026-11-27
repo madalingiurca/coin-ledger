@@ -23,6 +23,10 @@ type Theme struct {
 	Positive lipgloss.Style
 	Negative lipgloss.Style
 	Rule     lipgloss.Style
+	// Leader is the dotted line that walks the eye from a label to its
+	// amount across a wide pane. It sits between the line colour and
+	// muted text: there to follow, never to read.
+	Leader   lipgloss.Style
 	Footer   lipgloss.Style
 	Key      lipgloss.Style
 	BarFill  lipgloss.Style
@@ -62,6 +66,7 @@ func newTheme(dark bool) Theme {
 		accent = c(lipgloss.Color("#0969da"), lipgloss.Color("#79c0ff"))
 		yellow = c(lipgloss.Color("#9a6700"), lipgloss.Color("#e3b341"))
 		line   = c(lipgloss.Color("#d0d7de"), lipgloss.Color("#30363d"))
+		dots   = c(lipgloss.Color("#b6bec7"), lipgloss.Color("#484f58"))
 		bar    = c(lipgloss.Color("#ddf4ff"), lipgloss.Color("#1f3a5f"))
 		focus  = lipgloss.Color(rossoCorsa)
 	)
@@ -82,6 +87,7 @@ func newTheme(dark bool) Theme {
 		Positive: base.Bold(true).Foreground(green),
 		Negative: base.Bold(true).Foreground(red),
 		Rule:     base.Foreground(line),
+		Leader:   base.Foreground(dots),
 		Footer:   base.Foreground(muted),
 		Key:      base.Bold(true).Foreground(fg),
 		BarFill:  base.Foreground(green),
