@@ -287,6 +287,7 @@ func (m Model) menuView(cw, h int) string {
 		wrap(t.Muted, cw, "Recurring entries (↻) are copied into each new month you open. "+
 			"Edit or delete one there and the change follows forward, not back."),
 		t.Muted.Render(truncate("Months are saved in "+m.store.Dir(), cw)),
+		t.Muted.Render(truncate("budget "+Version, cw)),
 	}
 	// The notes are worth showing only when they cost no binding its row.
 	room := h - len(head)

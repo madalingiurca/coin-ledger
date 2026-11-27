@@ -23,6 +23,10 @@ const (
 	screenImport
 )
 
+// Version is the build's version, shown in the keybindings menu. The build
+// sets it from the latest git tag; a plain go build leaves it at "dev".
+var Version = "dev"
+
 // Model is the whole application state.
 type Model struct {
 	store *store.Store
