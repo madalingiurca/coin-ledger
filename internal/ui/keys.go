@@ -99,6 +99,7 @@ func (m Model) screenBindings() (string, []binding) {
 		edit = []binding{
 			bind("e", "e", "rename the category everywhere", "rename"),
 			bind("enter", "enter space", "fold or unfold the category", ""),
+			bind("b", "b", "expect the category's expenses to be paid back, or stop", "paid back later"),
 		}
 	}
 	list := []binding{bind("a", "a", "add to the section the cursor is in", "add")}

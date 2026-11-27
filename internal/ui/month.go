@@ -304,6 +304,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		default:
 			m.openCategorise(entry)
 		}
+	case "b":
+		if r, ok := m.dash.current(); ok && r.header {
+			m.togglePaidBack(r.cat)
+		}
 	case "u":
 		m.openPayees()
 	case ">":
@@ -616,6 +620,9 @@ func (m Model) monthTotals(cw int, full bool) string {
 	if m.dash.month.HasActuals() {
 		lines = append(lines, m.spentLine(cw))
 	}
+	if l := m.awaitingLine(cw); l != "" {
+		lines = append(lines, l)
+	}
 	if full {
 		lines = append(lines, t.Rule.Render(rule(cw)))
 	}
@@ -652,6 +659,13 @@ func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string
 		name = "Uncategorised"
 	}
 	left := arrow + " " + name + " (" + itoa(c.Count) + ")"
+	if m.paidBack(c.Name) {
+		_, open := m.dash.month.OpenRefunds(func(cat string) bool { return cat == c.Name })
+		left += " · paid back later"
+		if open > 0 {
+			left += ", " + itoa(open) + " open"
+		}
+	}
 
 	var right string
 	switch {
@@ -808,6 +822,8 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.kind == model.Income && e.IsTransfer() {
 		text += " · transfer, not counted"
 	}
+	note, awaiting := m.refundNote(r.kind, e)
+	text += note
 	labelW -= lipgloss.Width(lead) - 2
 	label := padRight(truncate(text, labelW), labelW)
 	amount := padLeft(e.Amount.String(), amtW)
@@ -815,11 +831,55 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if selected {
 		return t.Selected.Bold(true).Render(padRight(lead+label+marker+amount, cw))
 	}
-	if (e.IsForecast() && m.dash.month.HasActuals()) || (r.kind == model.Income && e.IsTransfer()) {
-		// Still only expected: the bank has not reported it yet.
+	notCounted := (r.kind == model.Income && e.IsTransfer()) || (e.IsLinked() && e.Counted() <= 0)
+	switch {
+	case (e.IsForecast() && m.dash.month.HasActuals()) || notCounted:
+		// Still only expected, or not counted at all.
 		return t.Marker.Render(lead) + t.Muted.Render(label) + t.Marker.Render(marker) + t.Muted.Render(amount)
+	case awaiting:
+		return t.Marker.Render(lead) + t.Warning.Render(label) + t.Marker.Render(marker) + t.Amount.Render(amount)
 	}
 	return t.Marker.Render(lead) + t.Label.Render(label) + t.Marker.Render(marker) + t.Amount.Render(amount)
+}
+
+// refundNote says how an entry stands with reimbursements: a refund and how
+// much of it is not counted, an expense and how much of it was paid back, or
+// an expense in a paid-back category still waiting for its money. awaiting
+// is true for that last case.
+func (m Model) refundNote(kind model.Kind, e model.Entry) (note string, awaiting bool) {
+	paid := e.Reimbursed()
+	switch {
+	case kind == model.Income && paid > 0 && e.Counted() <= 0:
+		return " · refund, not counted", false
+	case kind == model.Income && paid > 0:
+		return " · refund, " + paid.String() + " not counted", false
+	case kind == model.Income:
+		return "", false
+	case paid > 0 && e.Counted() <= 0:
+		return " · paid back", false
+	case paid > 0 && m.paidBack(e.Category):
+		return " · " + e.Open().String() + " still to come back", true
+	case paid > 0:
+		return " · " + paid.String() + " paid back", false
+	case m.paidBack(e.Category):
+		return " · awaiting refund", true
+	}
+	return "", false
+}
+
+// paidBack reports whether a category's expenses are expected to come back.
+func (m Model) paidBack(category string) bool {
+	return m.rules != nil && m.rules.IsPaidBack(category)
+}
+
+// awaitingLine is how much of the month's expenses is still to be paid back.
+func (m Model) awaitingLine(cw int) string {
+	sum, _ := m.dash.month.OpenRefunds(m.paidBack)
+	if sum <= 0 {
+		return ""
+	}
+	amount := sum.Lei()
+	return m.theme.Warning.Render(padRight("still to come back", cw-lipgloss.Width(amount)) + amount)
 }
 
 // entryColumns splits a row between its amount and its label. The amount
