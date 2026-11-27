@@ -18,6 +18,7 @@ It takes no arguments and no flags. Everything happens on screen:
 | `d` | delete |
 | `r` | carry the entry into future months (`↻`) |
 | `c` | put an expense in a category, and optionally every expense from its payee; the cursor stays in the list you are working through |
+| `b` | link a refund to the expenses it pays back (or an expense to its refunds); on a category header, expect its expenses to be paid back |
 | `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
 | `tab` | next pane: income, To categorise, expenses |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
@@ -41,6 +42,12 @@ again adds nothing.
 in every month and on every later import. Expenses still without a category wait in
 their own To categorise pane, beside the month on a wide terminal. Money moving between your own ING and
 Revolut accounts is filed under Transfers and not counted.
+
+**Reimbursements.** Paid for something you get back later, like a team lunch your
+employer refunds? Press `b` on the refund and tick the expense: neither counts any more,
+in the same month or across months, and a partial refund leaves the difference counted.
+Mark a category as paid back later (`b` on its header) to see which of its expenses are
+still waiting for their money.
 
 Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when set,
 next to `categories.json`. The files are plain and hand-editable; writes are atomic

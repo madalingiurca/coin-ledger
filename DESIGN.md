@@ -69,6 +69,8 @@ reads as before.
 | `source` | `ing` or `revolut` on an imported (actual) entry; absent on a forecast. |
 | `date`, `payee`, `key` | The bank row: booking date, normalised payee rules match on, and a stable hash so a row imported twice is added once. |
 | `planned` | The forecast amount an actual replaced, kept so the difference shows. |
+| `reimburses` | On a refund (income): the expenses it pays back, each as `{ "month": "2026-10", "id": "c41f77", "amount": 282.24 }`. |
+| `reimbursed_by` | On an expense: the refunds that paid it back, in the same form, pointing the other way. |
 | `skipped_keys` | Bank rows imported and then deleted, so re-importing does not bring them back. |
 
 ### Categories file
@@ -84,7 +86,8 @@ reads as before.
     { "match": "CARREFOUR",  "category": "Groceries" }
   ],
   "links": [{ "match": "RATA CREDIT", "label": "Mortgage" }],
-  "next_month": [{ "match": "EXEMPLU SRL", "from_day": 27 }]
+  "next_month": [{ "match": "EXEMPLU SRL", "from_day": 27 }],
+  "paid_back": ["PayAndReceiveLater"]
 }
 ```
 
@@ -97,6 +100,8 @@ reads as before.
   month after: the salary due on the 1st arrives early when the 1st is a weekend or a
   holiday. Moving such a row forward (in the import, or with `>` later) teaches it, with the
   earliest day seen; moving a row it moved back forgets it.
+- A **paid-back** category holds expenses you expect to get back: money laid out for
+  friends or for work. Its expenses with no refund linked show as awaiting one.
 - **Transfers** is built in and never counted. Out of the box it catches money moving
   between your own ING and Revolut accounts (the ING card top-up and the matching Revolut
   `Top-up by` row). Round Ups and savings deposits *do* count: they arrive as "Round Up" or
@@ -129,6 +134,8 @@ over the other:
 - **Uncategorised forecast and actual add up**, because nothing ties them together.
 - **Income** adds up: planned and received are not tied together, so a typed salary counts beside the transfers the bank reports. A bank row that is the salary should replace it in the import; a replaced entry then counts what arrived, once.
 - **Transfers** count for nothing.
+- **Reimbursements** count for nothing either: the part of an expense a refund paid back,
+  and the part of the refund that paid it (see below).
 
 So a month with no imports totals exactly its plan, and the header shows *spent so far*
 (actuals) above *left* (projected).
@@ -223,6 +230,12 @@ bottom. `space` marks an expense (`✓`) and moves down; with marks set, `c` fil
 marked expense in one category (no payee rule, as they can come from different payees).
 The pane title counts the marks, `esc` clears them, and changing month drops them.
 
+**Link a refund** (`b` on an entry). On a refund, the expenses it can pay back; on an
+expense, the income that can pay it back (see Reimbursements). Already linked ones are
+ticked, the same amount comes first, then expenses in paid-back categories; typing filters.
+`space` ticks or unticks and `enter` saves the difference. `b` on a category header marks
+it as paid back later, or not.
+
 **Rename a category** (`e` on its header). The new name replaces the old in the category list,
 in every payee rule and in every month on disk; naming it after an existing category merges
 the two. Transfers is built in and cannot be renamed.
@@ -237,6 +250,29 @@ completes a known one), recurring. **Keybindings** (`?`): every key the screen a
 to, then the global ones. Typing filters the list and `enter` runs the chosen binding by
 pressing its key. The key bar is drawn from the same table (`keys.go`), so the two agree.
 
+## Reimbursements
+
+Some expenses come back: a team pizza the employer refunds, a dinner friends pay their
+share of. Counted as they are, the expense and the refund both inflate the month. So a
+refund (income) can be linked to the expenses it pays back, with `b` on either side.
+
+- A link carries an amount, the smaller of what is still open on each side. A refund
+  smaller than the expense leaves the difference counted; a refund larger than its expenses
+  keeps the rest, counted as income until it is linked to another expense. One expense can
+  be paid back by several refunds (each friend's share), and one refund can pay back several
+  expenses.
+- Both sides record the link, the refund in `reimburses` and the expense in `reimbursed_by`,
+  so each month counts its totals from its own file. A refund usually lands in a later
+  month: the dialog looks for expenses in the refund's month and the two before, and for
+  refunds in the expense's month and the two after.
+- A linked pair reads `refund, not counted` and `paid back`, dimmed like transfers; a
+  partial one says how much. In a **paid-back category** (`b` on its header) an expense
+  with nothing linked reads `awaiting refund`, the header counts the open ones, and the
+  totals pane shows what is *still to come back*.
+- Deleting a linked entry removes the link on the other side too, even in another month,
+  and what it paid back counts again. Moving a linked entry to another month is refused
+  until it is unlinked, since the other side points at it by month and id.
+
 ## Code layout
 
 ```
@@ -245,6 +281,7 @@ internal/
   model/      model.go   Entry, Month, totals, categories, forecast and actual, SeedFrom
               rules.go   categories, payee rules, forecast links
               match.go   forecast entries a bank row may fulfil
+              refund.go  reimbursement links between refunds and expenses
   store/      store.go   month files: Load, Save (atomic), Keys, Get, Summaries
               rules.go   categories.json, rule and rename sweeps, payee lists
               state.go   state.json
@@ -252,6 +289,7 @@ internal/
               real layouts
   ui/         app.go routing and framing; month.go; form.go; categorise.go; payees.go;
               importer.go; history.go; keys.go (key table, key bar, ? menu); confirm.go; move.go;
+              link.go (refund dialog); refund.go (paid-back categories);
               frame.go (panes, key bar, popups); theme.go; layout.go
 ```
 
