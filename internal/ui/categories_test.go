@@ -856,3 +856,29 @@ func TestPanesRememberTheirRow(t *testing.T) {
 		t.Errorf("shift+tab and back came back to %+v, want %s", got, want.Label)
 	}
 }
+
+// - folds every category and = unfolds them all.
+func TestFoldEveryCategory(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	mo.AddImported(model.Expense, bank("k2", "Bolt", 25, "Transport"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "=")
+	mustContain(t, plain(m), "Lidl", "Bolt")
+
+	// From an entry, folding everything leaves the cursor on its header.
+	m = press(t, m, "G", "-")
+	if screen := plain(m); strings.Contains(screen, "Lidl") || strings.Contains(screen, "Bolt") {
+		t.Errorf("- left a category open:\n%s", screen)
+	}
+	if r, _ := m.dash.current(); !r.header || r.cat != "Transport" {
+		t.Errorf("- left the cursor on %+v, want the Transport header", r)
+	}
+	m = press(t, m, "+")
+	if _, e, ok := m.dash.currentEntry(); ok || !strings.Contains(plain(m), "Lidl") {
+		t.Errorf("+ did not unfold everything with the cursor kept on the header (on %+v)", e)
+	}
+}

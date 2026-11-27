@@ -270,6 +270,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.unfold()
 	case "left", "h":
 		m.dash.fold()
+	case "-":
+		m.dash.foldAll(true)
+	case "=", "+":
+		m.dash.foldAll(false)
 
 	case "a":
 		if r, ok := m.dash.current(); ok {
@@ -632,6 +636,33 @@ func (d *dash) fold() {
 			return
 		}
 	}
+}
+
+// foldAll folds every category, or unfolds every one, keeping the cursor on
+// the row it was on; an entry that folds away leaves it on its header.
+func (d *dash) foldAll(fold bool) {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	want := d.rowKey(r)
+	if fold && !r.header && r.cat != "" {
+		want = "cat:" + r.cat
+	}
+	for _, c := range d.month.Categories() {
+		if fold {
+			delete(d.expanded, c.Name)
+		} else if c.Name != "" {
+			d.expanded[c.Name] = true
+		}
+	}
+	for i, row := range d.rows() {
+		if want != "" && d.rowKey(row) == want {
+			d.cursor = i
+			return
+		}
+	}
+	d.clamp()
 }
 
 // rowKey names a row by what it shows rather than where it is, so it can be

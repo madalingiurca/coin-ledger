@@ -121,6 +121,8 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("<", "<", "move the entry to the previous month", ""),
 		bind("i", "i", "add income", ""),
 		bind("x", "x", "add an expense", ""),
+		bind("-", "-", "fold every category", ""),
+		bind("=", "= +", "unfold every category", ""),
 		binding{key: "tab", display: "tab", action: "jump to the next pane", bar: "pane", barKey: "tab/⇧tab"},
 		bind("shift+tab", "shift+tab", "jump to the previous pane", ""),
 		binding{display: "↑ ↓ j k", action: "move the cursor"},
