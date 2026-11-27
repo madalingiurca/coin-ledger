@@ -18,12 +18,21 @@ type screen int
 const (
 	screenMonth screen = iota
 	screenHistory
+	screenPayees
+	screenImport
 )
 
 // Model is the whole application state.
 type Model struct {
 	store *store.Store
 	theme Theme
+	// rules are the categories and payee rules. rulesErr is set when the
+	// categories file exists but cannot be read; rules then holds the defaults
+	// in memory and nothing is ever saved over the damaged file.
+	rules    *model.Rules
+	rulesErr error
+	// collapsed is shared with every dash so folded categories stay folded.
+	collapsed map[string]bool
 
 	width, height int
 	ready         bool
@@ -31,7 +40,11 @@ type Model struct {
 	screen  screen
 	dash    dash
 	hist    hist
+	payees  payees
+	imp     *importState
 	form    *formState
+	cat     *catState
+	rename  *renameState
 	confirm *confirmState
 	help    bool
 
@@ -41,8 +54,15 @@ type Model struct {
 
 // New builds the app opened on the current month.
 func New(s *store.Store) Model {
-	m := Model{store: s, theme: newTheme(true)}
+	m := Model{store: s, theme: newTheme(true), collapsed: map[string]bool{}}
+	m.rules, m.rulesErr = s.LoadRules()
+	if m.rulesErr != nil {
+		m.rules = model.NewRules()
+	}
 	m.openMonth(model.Today())
+	if m.rulesErr != nil {
+		m.setError(m.rulesErr)
+	}
 	return m
 }
 
@@ -54,6 +74,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.theme = newTheme(msg.IsDark())
 		if m.form != nil {
 			m.form.restyle(m.theme)
+		}
+		if m.rename != nil {
+			m.rename.restyle(m.theme)
+		}
+		if m.cat != nil {
+			m.cat.restyle(m.theme)
 		}
 		return m, nil
 
@@ -78,6 +104,10 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.form != nil:
 		return m.formKey(msg)
+	case m.rename != nil:
+		return m.renameKey(msg)
+	case m.cat != nil:
+		return m.catKey(msg)
 	case m.confirm != nil:
 		return m.confirmKey(key)
 	case m.help:
@@ -96,8 +126,13 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.screen == screenHistory {
+	switch m.screen {
+	case screenHistory:
 		return m.historyKey(key)
+	case screenPayees:
+		return m.payeesKey(key)
+	case screenImport:
+		return m.importKey(key)
 	}
 	return m.monthKey(key)
 }
@@ -125,15 +160,40 @@ func (m Model) render() string {
 			t.Box.Width(cw + boxChrome).Render(m.historyView(cw)),
 			footer(t, cw+boxChrome, m.historyHints()...),
 		}
+	case m.screen == screenImport:
+		below := footer(t, cw+boxChrome, m.importHints()...)
+		frames = []string{
+			t.Box.Width(cw + boxChrome).Render(m.importView(cw, m.roomAbove(below))),
+			below,
+		}
+	case m.screen == screenPayees:
+		var below string
+		if m.cat != nil {
+			below = t.Form.Width(cw + boxChrome).Render(m.cat.view(t, cw))
+		} else {
+			below = footer(t, cw+boxChrome, m.payeesHints()...)
+		}
+		frames = []string{
+			t.Box.Width(cw + boxChrome).Render(m.payeesView(cw, m.roomAbove(below))),
+			below,
+		}
 	default:
-		frames = []string{t.Box.Width(cw + boxChrome).Render(m.monthView(cw))}
+		var below string
 		switch {
 		case m.form != nil:
-			frames = append(frames, t.Form.Width(cw+boxChrome).Render(m.form.view(t, cw)))
+			below = t.Form.Width(cw + boxChrome).Render(m.form.view(t, cw))
+		case m.rename != nil:
+			below = t.Form.Width(cw + boxChrome).Render(m.rename.view(t, cw))
+		case m.cat != nil:
+			below = t.Form.Width(cw + boxChrome).Render(m.cat.view(t, cw))
 		case m.confirm != nil:
-			frames = append(frames, m.confirmPrompt(cw))
+			below = m.confirmPrompt(cw)
 		default:
-			frames = append(frames, footer(t, cw+boxChrome, m.monthHints()...))
+			below = footer(t, cw+boxChrome, m.monthHints()...)
+		}
+		frames = []string{
+			t.Box.Width(cw + boxChrome).Render(m.monthView(cw, m.roomAbove(below))),
+			below,
 		}
 	}
 
@@ -146,6 +206,18 @@ func (m Model) render() string {
 		return view // too tall or wide to centre; show it plainly
 	}
 	return lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center, view)
+}
+
+// roomAbove is how many lines of content the main frame can hold once the
+// frame beneath it, the status line and its own border and padding are paid
+// for.
+func (m Model) roomAbove(below string) int {
+	const frame = 4 // top and bottom border, top and bottom padding
+	room := m.height - frame - lipgloss.Height(below) - 1
+	if m.status != "" {
+		room--
+	}
+	return max(0, room)
 }
 
 func (m Model) statusLine(cw int) string {

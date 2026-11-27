@@ -1,36 +1,43 @@
 # budget
 
-A monthly budget you keep in the terminal. Set what comes in and the big things
-you have planned to spend, then check back to see where you stand.
+A monthly budget you keep in the terminal. Plan what comes in and what you expect
+to spend, import your ING and Revolut statements as the month goes, and see what
+you have spent against the plan and what is projected to be left.
 
 ```bash
 go build -o ~/bin/budget .
 budget
 ```
 
-It takes no arguments and no flags. Everything happens on screen: `a` adds to
-the section the cursor is in, `e` edits, `d` deletes, `r` marks an entry as
-recurring, `←`/`→` move between months, `h` opens history, `?` lists every key.
+It takes no arguments and no flags. Everything happens on screen:
 
-Entries marked recurring (`↻`) are carried into each new month you open. The
-current month is the template — change rent in September and October inherits
-it; delete it in October and November never sees it.
+| Key | |
+|---|---|
+| `a` / `i` / `x` | add (to the section under the cursor / income / expense) |
+| `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` folds it |
+| `d` | delete |
+| `r` | carry the entry into future months (`↻`) |
+| `c` | put an expense in a category, and optionally every expense from its payee |
+| `u` | payees that still have no category; `→` on one files its transactions one by one |
+| `I` | import a bank statement |
+| `←` / `→`, `t` | previous / next month, back to this month |
+| `h` | history |
+| `?` | every key |
 
-Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when
-that is set. The files are plain and hand-editable:
+**Import.** Export the statement as CSV (ING: the *Extras de cont* CSV; Revolut: the
+account statement CSV, one per currency account), press `I`, pick the file. The
+preview shows what goes into which month and whether it matches the bank's balance;
+nothing is written until you confirm. Bank rows that look like something you
+planned, such as the mortgage, are offered to replace the planned entry. Importing
+the same file again adds nothing.
 
-```json
-{
-  "version": 1,
-  "month": "2026-09",
-  "income":   [{ "id": "94c789", "label": "Salary", "amount": 12500.00, "recurring": true }],
-  "expenses": [{ "id": "5af245", "label": "Rent",   "amount":  2800.00, "recurring": true }],
-  "updated_at": "2026-09-01T00:32:13+03:00"
-}
-```
+**Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows,
+in every month and on every later import. Money moving between your own ING and
+Revolut accounts is filed under Transfers and not counted.
 
-Writes are atomic and every change saves immediately, so there is no save key
-and nothing to lose. A file that cannot be parsed is shown read-only and is
-never overwritten.
+Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when set,
+next to `categories.json`. The files are plain and hand-editable; writes are atomic
+and every change saves immediately. A file that cannot be parsed is shown read-only
+and never overwritten.
 
-See [DESIGN.md](DESIGN.md) for why it is built this way.
+See [DESIGN.md](DESIGN.md) for how it works.

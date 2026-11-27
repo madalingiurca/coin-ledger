@@ -1,0 +1,10 @@
+Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance
+Topup,Current,2026-10-02 13:28:42,2026-10-02 13:28:44,Top-up by *1111,500.00,0.00,RON,COMPLETED,500.56
+Card Payment,Current,2026-10-02 13:28:50,2026-10-03 16:20:26,Netflix,-59.99,0.00,RON,COMPLETED,440.57
+Exchange,Current,2026-10-04 09:00:00,2026-10-04 09:00:01,Exchanged to EUR,-400.00,0.00,RON,COMPLETED,40.57
+Card Payment,Current,2026-10-05 10:00:00,,Pending shop,-10.00,0.00,RON,PENDING,
+Transfer,Current,2026-10-06 12:00:00,2026-10-06 12:00:02,Transfer to Maria Ionescu,-20.00,0.50,RON,COMPLETED,20.07
+Transfer,Current,2026-10-07 12:00:00,2026-10-07 12:00:02,Transfer from Andrei Pop,15.00,0.00,RON,COMPLETED,35.07
+Card Payment,Current,2026-10-08 12:00:00,2026-10-09 08:00:00,Bolt,-12.00,0.00,RON,COMPLETED,23.07
+Card Payment,Current,2026-10-08 12:00:00,2026-10-09 08:00:00,Bolt,-12.00,0.00,RON,COMPLETED,11.07
+Card Payment,Current,2026-10-08 12:30:00,2026-10-08 12:30:00,Cafe,-3.00,0.00,EUR,COMPLETED,5.00
