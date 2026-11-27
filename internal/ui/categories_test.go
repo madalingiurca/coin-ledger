@@ -807,3 +807,27 @@ func TestArrowsFoldCategories(t *testing.T) {
 		t.Errorf("← paged to %v", m.dash.key)
 	}
 }
+
+// h and l are the arrows for the right hand; H opens the history.
+func TestVimKeysFoldCategories(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "l")
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Fatalf("l did not unfold Groceries:\n%s", plain(m))
+	}
+	m = press(t, m, "l", "h")
+	if r, _ := m.dash.current(); !r.header || strings.Contains(plain(m), "Lidl") {
+		t.Errorf("h did not fold Groceries back onto its header:\n%s", plain(m))
+	}
+	if m.screen != screenMonth {
+		t.Fatal("h left the month screen")
+	}
+	if m = press(t, m, "H"); m.screen != screenHistory {
+		t.Error("H did not open the history")
+	}
+}

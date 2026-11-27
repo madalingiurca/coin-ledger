@@ -51,7 +51,7 @@ func (m Model) historyKey(key string) (tea.Model, tea.Cmd) {
 		m.hist.cursor = 0
 	case "G", "end":
 		m.hist.cursor = len(m.hist.rows) - 1
-	case "enter", "right":
+	case "enter", "right", "l":
 		if m.hist.cursor < len(m.hist.rows) {
 			m.openMonth(m.hist.rows[m.hist.cursor].Key)
 			m.screen = screenMonth

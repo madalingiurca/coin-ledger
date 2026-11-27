@@ -381,7 +381,7 @@ func TestHistoryScreen(t *testing.T) {
 	}
 
 	m := app(t, s)
-	m = press(t, m, "h")
+	m = press(t, m, "H")
 	if m.screen != screenHistory {
 		t.Fatal("h did not open history")
 	}
@@ -403,7 +403,7 @@ func TestHistoryScreen(t *testing.T) {
 
 func TestHistoryWithNothingSaved(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "h")
+	m = press(t, m, "H")
 	mustContain(t, plain(m), "No months saved yet")
 	checkWidth(t, m)
 
@@ -629,7 +629,7 @@ func TestVeryNarrowTerminal(t *testing.T) {
 		next, _ := m.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
 		m = next.(Model)
 
-		for _, screen := range []Model{m, press(t, m, "h"), press(t, m, "?"), press(t, m, "a")} {
+		for _, screen := range []Model{m, press(t, m, "H"), press(t, m, "?"), press(t, m, "a")} {
 			for i, line := range strings.Split(screen.View().Content, "\n") {
 				if w := lipgloss.Width(line); w > size.w {
 					t.Errorf("at %dx%d, line %d is %d cells:\n%q",

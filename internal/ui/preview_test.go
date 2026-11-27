@@ -42,7 +42,7 @@ func TestPreview(t *testing.T) {
 
 	show("FORM", press(t, m, "a"))
 	show("DELETE", press(t, m, "down", "d"))
-	show("HISTORY", press(t, m, "h"))
+	show("HISTORY", press(t, m, "H"))
 	show("HELP", press(t, m, "?"))
 
 	// A month with imported entries, categories and a forecast laid under them.

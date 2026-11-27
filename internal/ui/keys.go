@@ -88,7 +88,7 @@ func (m Model) screenBindings() (string, []binding) {
 		{key: "[", display: "[ p", action: "previous month", bar: "month", barKey: "[/]"},
 		bind("]", "] n", "next month", ""),
 		bind("t", "t", "this month", ""),
-		bind("h", "h", "history of the last 24 months", "history"),
+		bind("H", "H", "history of the last 24 months", "history"),
 		bind("I", "I", "import a bank statement (ING or Revolut CSV)", "import"),
 	}
 	if m.dash.loadErr != nil {
@@ -98,8 +98,8 @@ func (m Model) screenBindings() (string, []binding) {
 	if r, ok := m.dash.current(); ok && r.header {
 		edit = []binding{
 			bind("e", "e", "rename the category everywhere", "rename"),
-			{key: "right", display: "→", action: "unfold the category, or step into it", bar: "unfold", barKey: "←/→"},
-			bind("left", "←", "fold the category", ""),
+			{key: "right", display: "→ l", action: "unfold the category, or step into it", bar: "unfold", barKey: "←/→"},
+			bind("left", "← h", "fold the category", ""),
 			bind("enter", "enter space", "fold or unfold the category", ""),
 			bind("b", "b", "expect the category's expenses to be paid back, or stop", "paid back later"),
 		}
@@ -107,7 +107,7 @@ func (m Model) screenBindings() (string, []binding) {
 	list := []binding{bind("a", "a", "add to the section the cursor is in", "add")}
 	list = append(list, edit...)
 	if r, ok := m.dash.current(); ok && !r.header && r.cat != "" {
-		list = append(list, bind("left", "←", "fold the category the entry is in", "fold"))
+		list = append(list, bind("left", "← h", "fold the category the entry is in", "fold"))
 	}
 	list = append(list,
 		bind("d", "d", "delete the selected entry", "delete"),

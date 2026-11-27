@@ -59,7 +59,7 @@ func (m Model) payeesKey(key string) (tea.Model, tea.Cmd) {
 	}
 	p := &m.payees
 	switch key {
-	case "esc", "u", "left":
+	case "esc", "u", "left", "h":
 		m.screen = screenMonth
 	case "up", "k":
 		p.cursor = max(0, p.cursor-1)

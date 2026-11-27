@@ -236,7 +236,7 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "t":
 		m.openMonth(model.Today())
 		return m, nil
-	case "h":
+	case "H":
 		m.openHistory()
 		return m, nil
 	case "I":
@@ -261,9 +261,9 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.jumpSection()
 	case "shift+tab":
 		m.dash.jumpSectionBack()
-	case "right":
+	case "right", "l":
 		m.dash.unfold()
-	case "left":
+	case "left", "h":
 		m.dash.fold()
 
 	case "a":
