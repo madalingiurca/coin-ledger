@@ -22,6 +22,7 @@ It takes no arguments and no flags. Everything happens on screen:
 | `b` | link a refund to the expenses it pays back (or an expense to its refunds); on a category header, expect its expenses to be paid back |
 | `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
 | `tab` / `shift+tab` | next / previous pane: income, To categorise, expenses |
+| `s` / `S` | next / previous statistics beside the month: by category, by label, largest expenses, by week, income sources, against last month |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
 | `>` / `<` | move the entry to the next / previous month |
 | `I` | import a bank statement |

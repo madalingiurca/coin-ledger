@@ -207,8 +207,19 @@ what it holds (at most a third of the height), expenses taking the rest. The pan
 the cursor is the focused one, and `tab` moves the cursor to the next (`shift+tab` to the previous). A Totals pane sits
 beside them from 100 columns up, and a Left pane under them below that. The panes fill
 the terminal whatever its size, with no maximum width; the column beside the month takes
-a third of it. Below its figures the Totals pane fills the rest of that column with the
-month's spending by category, largest first, each as a bar of its share of the expenses.
+a third of it. Below its figures the Totals pane fills the rest of that column with a
+breakdown of the month, which `s` steps through and `S` steps back (the choice stays while
+paging months; the heading says `2/6 s`):
+by category, largest first, each as a bar of its share of the expenses; by label, the
+expenses added up by payee (or typed label) so every Bolt ride is one bar; the largest
+single expenses; by week, what the bank booked on the 1st–7th, 8th–14th and so on, with
+rows counted from the month before or after on bars of their own (plans have no date, so
+only bank rows count); income by source, without transfers; and against the month before,
+each category's amount now and how much more (red) or less (green) that is, biggest change
+first. By category, by label and largest all add up to the month's expense total: a
+category counts its plan or its bank rows, whichever is more, and only that side's entries
+are taken by label, so a groceries budget and the shop rows that spend it are not both
+counted. `s` was picked because the arrows, brackets and `tab` already move around.
 A dim dotted leader (`Bolt ········ 27,00`) runs from each entry, category, payee and
 total to its amount, so a wide pane stays easy to read across; a recurring entry's `↻`
 sits on that leader in one column. Section and day headings keep plain space. Income, then expenses under category headers
