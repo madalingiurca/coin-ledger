@@ -113,7 +113,7 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("<", "<", "move the entry to the previous month", ""),
 		bind("i", "i", "add income", ""),
 		bind("x", "x", "add an expense", ""),
-		bind("tab", "tab", "switch between income and expenses", "income/expenses"),
+		bind("tab", "tab", "jump to the next pane", "next pane"),
 		binding{display: "↑ ↓ j k", action: "move the cursor"},
 		bind("g", "g G", "first / last row", ""),
 	)

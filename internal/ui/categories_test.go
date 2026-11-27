@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -67,14 +68,18 @@ func TestExpensesAreGroupedByCategory(t *testing.T) {
 
 	m := appOn(t, s, october, testW, testH)
 	screen := plain(m)
-	// Categories start folded: a header and a total each, no entries.
+	// Categories start folded: a header and a total each, no entries. The
+	// uncategorised expense has a pane of its own, always open.
 	mustContain(t, screen,
-		"▸ Uncategorised (1)",
+		"To categorise", "UNCATEGORISED", "25,00 lei", "Bolt",
 		"▸ Groceries (2)", "400,00 of 1.500,00",
 		"▸ Transfers (1)", "not counted 500,00",
 		"spent so far", "425,00 lei",
 	)
-	for _, hidden := range []string{"Lidl", "Bolt", "Wed 14 Oct"} {
+	if strings.Contains(screen, "Uncategorised (") {
+		t.Errorf("Uncategorised is still a category in the Expenses pane:\n%s", screen)
+	}
+	for _, hidden := range []string{"Lidl"} {
 		if strings.Contains(screen, hidden) {
 			t.Errorf("a folded category shows %q:\n%s", hidden, screen)
 		}
@@ -82,13 +87,13 @@ func TestExpensesAreGroupedByCategory(t *testing.T) {
 
 	m = unfoldAll(m)
 	screen = plain(m)
-	mustContain(t, screen, "▾ Uncategorised (1)", "▾ Groceries (2)", "▾ Transfers (1)", "Wed 14 Oct", "Lidl", "Bolt")
+	mustContain(t, screen, "▾ Groceries (2)", "▾ Transfers (1)", "Wed 14 Oct", "Lidl", "Bolt")
 	// Projected: groceries count their forecast, Bolt adds, the transfer does not.
 	mustContain(t, screen, "8.475,00 lei")
 	checkWidth(t, m)
 
-	// Uncategorised comes first, Transfers last.
-	if u, g, tr := strings.Index(screen, "Uncategorised"), strings.Index(screen, "Groceries ("), strings.Index(screen, "Transfers"); !(u < g && g < tr) {
+	// The To categorise pane comes first, Transfers last.
+	if u, g, tr := strings.Index(screen, "To categorise"), strings.Index(screen, "Groceries ("), strings.Index(screen, "Transfers"); !(u < g && g < tr) {
 		t.Errorf("category order is wrong:\n%s", screen)
 	}
 }
@@ -295,7 +300,7 @@ func TestCategorisingStaysInTheList(t *testing.T) {
 	saveMonth(t, s, mo)
 
 	m := appOn(t, s, october, testW, testH)
-	m = press(t, m, "down", "enter", "down") // unfold Uncategorised, onto Bolt
+	m = press(t, m, "down") // into the To categorise pane, onto Bolt
 	onKey := func(want string) {
 		t.Helper()
 		if _, e, ok := m.dash.currentEntry(); !ok || e.Key != want {
@@ -323,8 +328,8 @@ func TestCategorisingStaysInTheList(t *testing.T) {
 	if r, ok := m.dash.current(); !ok || r.index < 0 && !r.header {
 		t.Errorf("cursor on %+v after the list emptied", r)
 	}
-	if strings.Contains(plain(m), "Uncategorised") {
-		t.Errorf("Uncategorised is still listed:\n%s", plain(m))
+	if strings.Contains(plain(m), "To categorise") {
+		t.Errorf("the To categorise pane outlived its last entry:\n%s", plain(m))
 	}
 }
 
@@ -339,11 +344,11 @@ func TestCategorisingSeveralMarkedExpenses(t *testing.T) {
 	saveMonth(t, s, mo)
 
 	m := appOn(t, s, october, testW, testH)
-	m = press(t, m, "down", "enter", "down") // unfold Uncategorised, onto Ironic
-	m = press(t, m, "space", "space")        // mark Ironic and Mario, landing on Altex
-	m = press(t, m, "down", "space")         // skip Altex, mark Ironic Bar
+	m = press(t, m, "down")           // into the To categorise pane, onto Ironic
+	m = press(t, m, "space", "space") // mark Ironic and Mario, landing on Altex
+	m = press(t, m, "down", "space")  // skip Altex, mark Ironic Bar
 	screen := plain(m)
-	mustContain(t, screen, "Expenses · 3 marked", "✓ Ironic", "✓ Mario s Osteria", "✓ Ironic Bar")
+	mustContain(t, screen, "To categorise · 3 marked", "✓ Ironic", "✓ Mario s Osteria", "✓ Ironic Bar")
 	if strings.Contains(screen, "✓ Altex") {
 		t.Errorf("Altex was marked:\n%s", screen)
 	}
@@ -705,5 +710,39 @@ func TestTransfersCannotBeRenamed(t *testing.T) {
 	m = press(t, m, "e")
 	if m.rename != nil {
 		t.Error("Transfers opened the rename dialog")
+	}
+}
+
+// Uncategorised expenses sit in a To categorise pane: beside the month on a
+// terminal with room for it, between income and expenses otherwise. tab
+// visits income, To categorise and expenses in turn.
+func TestToCategorisePane(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.Add(model.Income, "Salary", money.FromLei(10000), true)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Carrefour Express Mihalache", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Altex", 420, ""))
+	saveMonth(t, s, mo)
+
+	for _, w := range []int{testW, 150} {
+		m := appOn(t, s, october, w, testH)
+		screen := plain(m)
+		mustContain(t, screen, "To categorise", "UNCATEGORISED", "476,00 lei", "Carrefour Express Mihalache", "Altex", "▸ Groceries (1)")
+		checkWidth(t, m)
+
+		first := strings.SplitN(screen, "\n", 2)[0]
+		if beside := strings.Contains(first, "To categorise"); beside != (w == 150) {
+			t.Errorf("width %d: To categorise beside the month = %v:\n%s", w, beside, screen)
+		}
+
+		sections := []int{}
+		for range 4 {
+			sections = append(sections, m.cursorSection())
+			m = press(t, m, "tab")
+		}
+		if want := []int{secIncome, secTodo, secExpense, secIncome}; fmt.Sprint(sections) != fmt.Sprint(want) {
+			t.Errorf("width %d: tab visits %v, want %v", w, sections, want)
+		}
 	}
 }

@@ -122,8 +122,8 @@ func mustContain(t *testing.T, screen string, wants ...string) {
 func checkWidth(t *testing.T, m Model) {
 	t.Helper()
 	for i, line := range strings.Split(m.View().Content, "\n") {
-		if w := lipgloss.Width(line); w > testW {
-			t.Errorf("line %d is %d cells wide, terminal is %d:\n%q", i, w, testW, stripANSI(line))
+		if w := lipgloss.Width(line); w > m.width {
+			t.Errorf("line %d is %d cells wide, terminal is %d:\n%q", i, w, m.width, stripANSI(line))
 		}
 	}
 }

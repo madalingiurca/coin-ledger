@@ -65,6 +65,40 @@ type row struct {
 	index  int
 	header bool
 	cat    string
+	// todo marks an uncategorised expense, listed in its own pane rather
+	// than under the expense categories.
+	todo bool
+}
+
+// The month's panes, top to bottom, which the cursor moves through in turn.
+const (
+	secIncome = iota
+	secTodo
+	secExpense
+)
+
+func (r row) section() int {
+	switch {
+	case r.kind == model.Income:
+		return secIncome
+	case r.todo:
+		return secTodo
+	}
+	return secExpense
+}
+
+// hasTodo reports whether the month has a To categorise pane: some expenses
+// have categories and some are still waiting for one.
+func (d dash) hasTodo() bool {
+	if !d.grouped() {
+		return false
+	}
+	for _, e := range d.month.Expenses {
+		if e.Category == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // grouped reports whether expenses are shown under category headers. A month
@@ -92,6 +126,12 @@ func (d dash) rows() []row {
 		}
 	}
 
+	if d.hasTodo() {
+		for _, i := range byDay(d.month.Expenses, func(e model.Entry) bool { return e.Category == "" }) {
+			out = append(out, row{kind: model.Expense, index: i, todo: true})
+		}
+	}
+
 	switch {
 	case len(d.month.Expenses) == 0:
 		out = append(out, row{kind: model.Expense, index: -1})
@@ -101,6 +141,9 @@ func (d dash) rows() []row {
 		}
 	default:
 		for _, c := range d.month.Categories() {
+			if c.Name == "" {
+				continue // in the To categorise pane
+			}
 			out = append(out, row{kind: model.Expense, index: -1, header: true, cat: c.Name})
 			if !d.expanded[c.Name] {
 				continue
@@ -390,6 +433,7 @@ func (m *Model) toggleMark() {
 type spot struct {
 	kind model.Kind
 	cat  string
+	sec  int
 	// ids are the entries to try in order: the one under the cursor, then
 	// those after it in the same list, then those before it.
 	ids []string
@@ -402,10 +446,10 @@ func (d dash) spot() spot {
 		return spot{at: d.cursor}
 	}
 	cur := rows[d.cursor]
-	s := spot{kind: cur.kind, cat: cur.cat, at: d.cursor}
+	s := spot{kind: cur.kind, cat: cur.cat, sec: cur.section(), at: d.cursor}
 	add := func(i int) {
 		r := rows[i]
-		if !r.header && r.index >= 0 && r.kind == cur.kind && r.cat == cur.cat {
+		if !r.header && r.index >= 0 && r.section() == cur.section() && r.cat == cur.cat {
 			s.ids = append(s.ids, d.month.Entries(r.kind)[r.index].ID)
 		}
 	}
@@ -450,10 +494,14 @@ func (m Model) monthError(cw int) string {
 // count is the cursor's place in the section, empty when the cursor is in
 // the other one; lines is how tall the section is unscrolled. An h of zero
 // means no limit.
-func (m Model) monthSection(kind model.Kind, cw, h int) (body, count string, lines int) {
+func (m Model) monthSection(sec, cw, h int) (body, count string, lines int) {
 	t := m.theme
+	kind := model.Expense
+	if sec == secIncome {
+		kind = model.Income
+	}
 	var head []string
-	if kind == model.Income {
+	if sec == secIncome {
 		if note := m.monthNote(); note != "" {
 			head = append(head, t.Muted.Render(truncate(note, cw)))
 		}
@@ -464,7 +512,11 @@ func (m Model) monthSection(kind model.Kind, cw, h int) (body, count string, lin
 			head = append(head, "")
 		}
 	}
-	head = append(head, m.sectionHeader(kind, cw))
+	if sec == secTodo {
+		head = append(head, m.todoHeader(cw))
+	} else {
+		head = append(head, m.sectionHeader(kind, cw))
+	}
 
 	var out []string
 	cursorLine, place, n := 0, -1, 0
@@ -475,7 +527,7 @@ func (m Model) monthSection(kind model.Kind, cw, h int) (body, count string, lin
 	days := m.dayBuckets()
 	lastDay, lastCat := "\x00", "\x00"
 	for i, r := range m.dash.rows() {
-		if r.kind != kind {
+		if r.section() != sec {
 			continue
 		}
 		selected := i == m.dash.cursor
@@ -521,26 +573,29 @@ func (m Model) monthSection(kind model.Kind, cw, h int) (body, count string, lin
 	return strings.Join(append(head, out...), "\n"), count, lines
 }
 
-// cursorKind is the section the cursor is in.
-func (m Model) cursorKind() model.Kind {
+// cursorSection is the pane the cursor is in.
+func (m Model) cursorSection() int {
 	if r, ok := m.dash.current(); ok {
-		return r.kind
+		return r.section()
 	}
-	return model.Income
+	return secIncome
 }
 
-// jumpSection moves the cursor to the first row of the other section.
+// jumpSection moves the cursor to the first row of the next pane, round to
+// the first after the last.
 func (d *dash) jumpSection() {
 	r, ok := d.current()
 	if !ok {
 		return
 	}
-	for i, other := range d.rows() {
-		if other.kind != r.kind {
+	rows := d.rows()
+	for i := d.cursor + 1; i < len(rows); i++ {
+		if rows[i].section() != r.section() {
 			d.cursor = i
 			return
 		}
 	}
+	d.cursor = 0
 }
 
 // monthTotals is what the totals pane shows. full adds the income and
@@ -656,6 +711,19 @@ func (m Model) sectionHeader(kind model.Kind, cw int) string {
 	}
 	total := m.dash.month.Total(kind).Lei()
 	return t.Section.Render(padRight(name, cw-lipgloss.Width(total))) + t.Total.Render(total)
+}
+
+// todoHeader heads the To categorise pane with what its expenses come to.
+func (m Model) todoHeader(cw int) string {
+	t := m.theme
+	var total money.Amount
+	for _, c := range m.dash.month.Categories() {
+		if c.Name == "" {
+			total = c.Projected
+		}
+	}
+	amount := total.Lei()
+	return t.Warning.Render(padRight("UNCATEGORISED", cw-lipgloss.Width(amount))) + t.Total.Render(amount)
 }
 
 // dayTotals is what the bank booked on each day within each expense category,

@@ -241,7 +241,9 @@ const (
 
 // monthScreen lays out the month: an income pane over an expenses pane, the
 // one holding the cursor focused, and the totals beside them on a wide
-// terminal and under them on a narrow one.
+// terminal and under them on a narrow one. Expenses still to categorise get
+// a pane of their own: above the totals on a wide terminal, between income
+// and expenses on a narrow one.
 func (m Model) monthScreen(cw, h int) string {
 	t := m.theme
 	if m.dash.month == nil {
@@ -249,40 +251,83 @@ func (m Model) monthScreen(cw, h int) string {
 			w: cw + paneChrome, h: h, focused: true}.render(t)
 	}
 	if m.width >= sideFrom {
-		sideW := min(sideMax, max(sideMin, m.width-cw-paneChrome))
+		room := m.width - cw - paneChrome
+		todoBeside := m.dash.hasTodo() && room >= todoMin
+		most := sideMax
+		if todoBeside {
+			most = todoMax
+		}
+		sideW := min(most, max(sideMin, room))
 		listW := min(cw+paneChrome, m.width-sideW)
-		totals := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
-		return lipgloss.JoinHorizontal(lipgloss.Top, m.monthSections(listW-paneChrome, h), totals)
+		side := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
+		if todoBeside {
+			side = m.todoPane(sideW-paneChrome, max(4, h-lipgloss.Height(side))) + "\n" + side
+		}
+		return lipgloss.JoinHorizontal(lipgloss.Top, m.monthSections(listW-paneChrome, h, !todoBeside), side)
 	}
 	totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
-	return m.monthSections(cw, max(6, h-lipgloss.Height(totals))) + "\n" + totals
+	return m.monthSections(cw, max(6, h-lipgloss.Height(totals)), true) + "\n" + totals
 }
 
 // incomeShare caps the income pane at this fraction of the height: income is
-// a line or two, expenses are most of the month.
+// a line or two, expenses are most of the month. The To categorise pane gets
+// at most half of what is left.
 const incomeShare = 3
 
-// monthSections stacks the income pane, sized to what it holds, over the
-// expenses pane, which takes the rest of h.
-func (m Model) monthSections(cw, h int) string {
-	t := m.theme
-	focus := m.cursorKind()
-	_, _, natural := m.monthSection(model.Income, cw, 0)
-	incomeH := min(natural+2, max(4, h/incomeShare))
-	expenseH := max(3, h-incomeH)
+// todoMin and todoMax bound the column beside the month list when it holds
+// the To categorise pane, whose payee names want more room than totals do.
+// A terminal with less room than todoMin keeps the pane in the main column.
+const (
+	todoMin = 44
+	todoMax = 60
+)
 
-	inBody, inCount, _ := m.monthSection(model.Income, cw, incomeH-2)
-	exBody, exCount, _ := m.monthSection(model.Expense, cw, expenseH-2)
+// monthSections stacks the income pane, sized to what it holds, over the
+// expenses pane, which takes the rest of h. withTodo puts the To categorise
+// pane between them.
+func (m Model) monthSections(cw, h int, withTodo bool) string {
+	t := m.theme
+	focus := m.cursorSection()
+	_, _, natural := m.monthSection(secIncome, cw, 0)
+	incomeH := min(natural+2, max(4, h/incomeShare))
+	todo, todoH := "", 0
+	if withTodo && m.dash.hasTodo() {
+		_, _, natural := m.monthSection(secTodo, cw, 0)
+		todoH = min(natural+2, max(4, (h-incomeH)/2))
+		todo = m.todoPane(cw, todoH) + "\n"
+	}
+	expenseH := max(3, h-incomeH-todoH)
+
+	inBody, inCount, _ := m.monthSection(secIncome, cw, incomeH-2)
+	exBody, exCount, _ := m.monthSection(secExpense, cw, expenseH-2)
 	active := !m.dialogOpen()
 	income := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: inCount, body: inBody,
-		w: cw + paneChrome, h: incomeH, focused: active && focus == model.Income}.render(t)
-	exTitle := "Expenses"
-	if n := len(m.dash.markedIDs()); n > 0 {
-		exTitle += " · " + itoa(n) + " marked"
+		w: cw + paneChrome, h: incomeH, focused: active && focus == secIncome}.render(t)
+	expenses := pane{title: "Expenses" + m.markNote(false), counter: exCount, body: exBody,
+		w: cw + paneChrome, h: expenseH, focused: active && focus == secExpense}.render(t)
+	return income + "\n" + todo + expenses
+}
+
+// todoPane lists the expenses that have no category yet.
+func (m Model) todoPane(cw, h int) string {
+	body, count, _ := m.monthSection(secTodo, cw, h-2)
+	return pane{title: "To categorise" + m.markNote(true), counter: count, body: body,
+		w: cw + paneChrome, h: h, focused: !m.dialogOpen() && m.cursorSection() == secTodo}.render(m.theme)
+}
+
+// markNote counts the marked expenses in the To categorise pane (todo) or
+// the Expenses pane, for the pane's title.
+func (m Model) markNote(todo bool) string {
+	n := 0
+	for _, id := range m.dash.markedIDs() {
+		if e, ok := m.dash.month.Find(model.Expense, id); ok && (e.Category == "" && m.dash.hasTodo()) == todo {
+			n++
+		}
 	}
-	expenses := pane{title: exTitle, counter: exCount, body: exBody,
-		w: cw + paneChrome, h: expenseH, focused: active && focus == model.Expense}.render(t)
-	return income + "\n" + expenses
+	if n == 0 {
+		return ""
+	}
+	return " · " + itoa(n) + " marked"
 }
 
 // dialogOpen reports whether a dialog has the keyboard.
