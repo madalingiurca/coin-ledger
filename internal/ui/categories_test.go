@@ -328,6 +328,71 @@ func TestCategorisingStaysInTheList(t *testing.T) {
 	}
 }
 
+func TestCategorisingSeveralMarkedExpenses(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Ironic", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Mario s Osteria", 49, ""))
+	mo.AddImported(model.Expense, bank("k3", "Altex", 420, ""))
+	mo.AddImported(model.Expense, bank("k4", "Ironic Bar", 79, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "enter", "down") // unfold Uncategorised, onto Ironic
+	m = press(t, m, "space", "space")        // mark Ironic and Mario, landing on Altex
+	m = press(t, m, "down", "space")         // skip Altex, mark Ironic Bar
+	screen := plain(m)
+	mustContain(t, screen, "Expenses · 3 marked", "✓ Ironic", "✓ Mario s Osteria", "✓ Ironic Bar")
+	if strings.Contains(screen, "✓ Altex") {
+		t.Errorf("Altex was marked:\n%s", screen)
+	}
+	checkWidth(t, m)
+
+	m = press(t, m, "up", "c") // on Altex: c files the marked ones, not this one
+	if m.cat == nil {
+		t.Fatal("c did not open the categorise dialog")
+	}
+	mustContain(t, plain(m), "Categorise 3 marked expenses")
+	if strings.Contains(plain(m), "Match") {
+		t.Error("filing several offers to remember a payee")
+	}
+	m = press(t, m, typing("Eating out")...)
+	m = press(t, m, "enter")
+
+	got := map[string]string{}
+	for _, e := range m.dash.month.Expenses {
+		got[e.Key] = e.Category
+	}
+	if got["k1"] != "Eating out" || got["k2"] != "Eating out" || got["k4"] != "Eating out" || got["k3"] != "" {
+		t.Errorf("categories = %v", got)
+	}
+	screen = plain(m)
+	mustContain(t, screen, "3 expenses → Eating out")
+	if strings.Contains(screen, "marked") || strings.Contains(screen, "✓") {
+		t.Errorf("the marks outlived the filing:\n%s", screen)
+	}
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k3" {
+		t.Errorf("cursor on %+v, want Altex", e)
+	}
+	saved, _ := s.Load(october)
+	if saved.Expenses[1].Category != "Eating out" {
+		t.Error("the filing was not saved")
+	}
+
+	// esc drops the marks without filing anything.
+	m = press(t, m, "space", "esc")
+	if len(m.dash.markedIDs()) != 0 {
+		t.Error("esc did not clear the marks")
+	}
+
+	// Income cannot be marked.
+	m = press(t, m, "g", "space")
+	if len(m.dash.markedIDs()) != 0 {
+		t.Error("the income placeholder was marked")
+	}
+}
+
 func TestCategoriseWithAShorterMatch(t *testing.T) {
 	s := testStore(t)
 	mo := model.New(october)

@@ -28,6 +28,32 @@ type dash struct {
 	// belongs to the app rather than the month, so an unfolded category stays
 	// unfolded while paging through months.
 	expanded map[string]bool
+	// marked are the expenses picked with space, to be categorised together.
+	// They belong to the month: paging away drops them.
+	marked map[string]bool
+}
+
+// markedIDs lists the marked expenses still in the month, in list order.
+func (d dash) markedIDs() []string {
+	var ids []string
+	for _, r := range d.rows() {
+		if r.kind == model.Expense && r.index >= 0 && !r.header {
+			if id := d.month.Expenses[r.index].ID; d.marked[id] {
+				ids = append(ids, id)
+			}
+		}
+	}
+	// A marked entry in a folded category has no row; it still counts.
+	seen := map[string]bool{}
+	for _, id := range ids {
+		seen[id] = true
+	}
+	for _, e := range d.month.Expenses {
+		if d.marked[e.ID] && !seen[e.ID] {
+			ids = append(ids, e.ID)
+		}
+	}
+	return ids
 }
 
 // row addresses one selectable line. index is -1 for the placeholder line an
@@ -201,12 +227,18 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		m.form = newForm(m.theme, model.Expense, nil, "", m.categoryNames())
 
+	case "esc":
+		if len(m.dash.marked) > 0 {
+			m.dash.marked = nil
+			m.setStatus("Marks cleared")
+		}
 	case "enter", "space", " ":
 		if r, ok := m.dash.current(); ok && r.header {
 			m.dash.expanded[r.cat] = !m.dash.expanded[r.cat]
 			return m, nil
 		}
 		if key != "enter" {
+			m.toggleMark()
 			return m, nil
 		}
 		fallthrough
@@ -221,6 +253,8 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "c":
 		kind, entry, ok := m.dash.currentEntry()
 		switch {
+		case len(m.dash.markedIDs()) > 0:
+			m.openCategoriseMany(m.dash.markedIDs())
 		case !ok:
 		case kind == model.Income:
 			m.setStatus("Only expenses have categories")
@@ -327,6 +361,28 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 		}
 	}
 	m.dash.clamp()
+}
+
+// toggleMark marks or unmarks the expense under the cursor and moves on to
+// the next row, so a run of entries is marked by holding space.
+func (m *Model) toggleMark() {
+	kind, e, ok := m.dash.currentEntry()
+	switch {
+	case !ok:
+		return
+	case kind == model.Income:
+		m.setStatus("Only expenses have categories")
+		return
+	}
+	if m.dash.marked == nil {
+		m.dash.marked = map[string]bool{}
+	}
+	if m.dash.marked[e.ID] {
+		delete(m.dash.marked, e.ID)
+	} else {
+		m.dash.marked[e.ID] = true
+	}
+	m.dash.cursor = min(len(m.dash.rows())-1, m.dash.cursor+1)
 }
 
 // spot remembers where the cursor is within its list, so that it can stay
@@ -652,6 +708,15 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	}
 
 	e := m.dash.month.Entries(r.kind)[r.index]
+	// lead is the margin before the label: deeper under a day's heading,
+	// and ending in a tick when the expense is marked.
+	lead := "  "
+	if bucketed {
+		lead = "    "
+	}
+	if r.kind == model.Expense && m.dash.marked[e.ID] {
+		lead = lead[:len(lead)-2] + "✓ "
+	}
 	marker := "  "
 	if e.Recurring {
 		marker = " ↻"
@@ -659,7 +724,7 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	text := e.Label
 	switch {
 	case bucketed:
-		text = "  " + text // under its day's heading
+		// under its day's heading, which lead indents for
 	case len(e.Date) == len("2026-10-02"):
 		text = e.Date[8:] + " " + text // day of the month the bank booked it
 		if e.Date[:7] != m.dash.key.String() {
@@ -675,17 +740,18 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.kind == model.Income && e.IsTransfer() {
 		text += " · transfer, not counted"
 	}
+	labelW -= lipgloss.Width(lead) - 2
 	label := padRight(truncate(text, labelW), labelW)
 	amount := padLeft(e.Amount.String(), amtW)
 
 	if selected {
-		return t.Selected.Bold(true).Render(padRight("  "+label+marker+amount, cw))
+		return t.Selected.Bold(true).Render(padRight(lead+label+marker+amount, cw))
 	}
 	if (e.IsForecast() && m.dash.month.HasActuals()) || (r.kind == model.Income && e.IsTransfer()) {
 		// Still only expected: the bank has not reported it yet.
-		return t.Muted.Render("  "+label) + t.Marker.Render(marker) + t.Muted.Render(amount)
+		return t.Marker.Render(lead) + t.Muted.Render(label) + t.Marker.Render(marker) + t.Muted.Render(amount)
 	}
-	return t.Label.Render("  "+label) + t.Marker.Render(marker) + t.Amount.Render(amount)
+	return t.Marker.Render(lead) + t.Label.Render(label) + t.Marker.Render(marker) + t.Amount.Render(amount)
 }
 
 // entryColumns splits a row between its amount and its label. The amount

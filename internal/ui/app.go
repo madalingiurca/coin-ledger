@@ -276,7 +276,11 @@ func (m Model) monthSections(cw, h int) string {
 	active := !m.dialogOpen()
 	income := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: inCount, body: inBody,
 		w: cw + paneChrome, h: incomeH, focused: active && focus == model.Income}.render(t)
-	expenses := pane{title: "Expenses", counter: exCount, body: exBody,
+	exTitle := "Expenses"
+	if n := len(m.dash.markedIDs()); n > 0 {
+		exTitle += " · " + itoa(n) + " marked"
+	}
+	expenses := pane{title: exTitle, counter: exCount, body: exBody,
 		w: cw + paneChrome, h: expenseH, focused: active && focus == model.Expense}.render(t)
 	return income + "\n" + expenses
 }
