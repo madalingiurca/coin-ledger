@@ -72,26 +72,32 @@ type Entry struct {
 	Source string `json:"source,omitempty"`
 	// Key identifies the bank row, so importing it twice adds it once.
 	Key string `json:"key,omitempty"`
+	// Reimburses, on income, lists the expenses this refund pays back.
+	Reimburses []Ref `json:"reimburses,omitempty"`
+	// ReimbursedBy, on an expense, lists the refunds that paid it back.
+	ReimbursedBy []Ref `json:"reimbursed_by,omitempty"`
 }
 
 // IsForecast reports whether the entry was typed by hand rather than imported.
 func (e Entry) IsForecast() bool { return e.Source == "" }
 
 // Forecast is the planned part of the entry: its amount while it is still a
-// forecast, or the amount it replaced once an actual took its place.
+// forecast, or the amount it replaced once an actual took its place. What
+// has been reimbursed is not counted.
 func (e Entry) Forecast() money.Amount {
 	if e.IsForecast() {
-		return e.Amount
+		return e.Counted()
 	}
 	return e.Planned
 }
 
-// Actual is what the bank says happened; zero for a forecast.
+// Actual is what the bank says happened, less what has been reimbursed; zero
+// for a forecast.
 func (e Entry) Actual() money.Amount {
 	if e.IsForecast() {
 		return 0
 	}
-	return e.Amount
+	return e.Counted()
 }
 
 // IsTransfer reports whether the entry is excluded from every total.
@@ -252,14 +258,16 @@ func (m *Month) Entries(kind Kind) []Entry { return *m.list(kind) }
 // anything together either, so what you planned and what arrived add up: a
 // salary you typed counts beside the transfers the bank reports, and a bank
 // row that is the salary replaces it in the import instead, and then only
-// what arrived counts. Transfers are left out.
+// what arrived counts. Transfers are left out, and so is every reimbursement:
+// the part of a refund that pays back an expense, and the part of the expense
+// it paid back.
 func (m *Month) Total(kind Kind) money.Amount {
 	if kind == Income {
 		// A bank row that replaced a plan counts once, for what arrived.
 		var sum money.Amount
 		for _, e := range m.Income {
 			if !e.IsTransfer() {
-				sum += e.Amount
+				sum += e.Counted()
 			}
 		}
 		return sum
@@ -533,6 +541,9 @@ func (m *Month) Remove(kind Kind, id string) error {
 	entries := *m.list(kind)
 	for i, e := range entries {
 		if e.ID == id {
+			if e.IsLinked() {
+				return fmt.Errorf("%s is %w; unlink it first", e.Label, ErrLinked)
+			}
 			if e.Key != "" {
 				m.SkippedKeys = append(m.SkippedKeys, e.Key)
 			}
@@ -569,6 +580,12 @@ func (m *Month) Clone() *Month {
 	c.Income = slices.Clone(m.Income)
 	c.Expenses = slices.Clone(m.Expenses)
 	c.SkippedKeys = slices.Clone(m.SkippedKeys)
+	for _, list := range [][]Entry{c.Income, c.Expenses} {
+		for i := range list {
+			list[i].Reimburses = slices.Clone(list[i].Reimburses)
+			list[i].ReimbursedBy = slices.Clone(list[i].ReimbursedBy)
+		}
+	}
 	return &c
 }
 
@@ -581,6 +598,9 @@ func (m *Month) Take(kind Kind, id string) (Entry, error) {
 	for i, e := range entries {
 		if e.ID != id {
 			continue
+		}
+		if e.IsLinked() {
+			return Entry{}, fmt.Errorf("%s is %w; unlink it first", e.Label, ErrLinked)
 		}
 		if e.IsForecast() || e.Planned == 0 {
 			*m.list(kind) = append(entries[:i:i], entries[i+1:]...)
