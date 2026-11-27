@@ -47,6 +47,7 @@ type Model struct {
 	cat     *catState
 	rename  *renameState
 	confirm *confirmState
+	move    *moveState
 	menu    *menuState
 
 	status  string
@@ -111,6 +112,8 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.catKey(msg)
 	case m.confirm != nil:
 		return m.confirmKey(key)
+	case m.move != nil:
+		return m.moveKey(key)
 	case m.menu != nil:
 		return m.menuKey(msg)
 	}
@@ -280,7 +283,7 @@ func (m Model) monthSections(cw, h int) string {
 
 // dialogOpen reports whether a dialog has the keyboard.
 func (m Model) dialogOpen() bool {
-	return m.form != nil || m.rename != nil || m.cat != nil || m.confirm != nil || m.menu != nil
+	return m.form != nil || m.rename != nil || m.cat != nil || m.confirm != nil || m.move != nil || m.menu != nil
 }
 
 // popupMax caps a dialog's content width; a form stretched across a wide
@@ -302,6 +305,8 @@ func (m Model) withPopup(screen string, cw, h int) string {
 		p.title, p.body, p.hints = m.cat.title, m.cat.view(t, pcw), m.cat.hints()
 	case m.confirm != nil:
 		p.title, p.body, p.hints = "Delete", m.confirmPrompt(pcw), "y delete · n keep"
+	case m.move != nil:
+		p.title, p.body, p.hints = "Move to "+m.move.target.Key.Label(), m.movePrompt(pcw), "r replace · k keep both · esc cancel"
 	case m.menu != nil:
 		name, _ := m.screenBindings()
 		p.title, p.body, p.hints = "Keybindings: "+name, m.menuView(pcw, max(1, h-4)), "enter run · esc close"

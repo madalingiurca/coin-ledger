@@ -228,6 +228,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case "u":
 		m.openPayees()
+	case ">":
+		m.startMove(1)
+	case "<":
+		m.startMove(-1)
 	case "d", "delete", "backspace":
 		if kind, entry, ok := m.dash.currentEntry(); ok {
 			m.confirm = &confirmState{kind: kind, id: entry.ID, label: entry.Label, amount: entry.Amount}
@@ -611,6 +615,12 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 		text = "  " + text // under its day's heading
 	case len(e.Date) == len("2026-10-02"):
 		text = e.Date[8:] + " " + text // day of the month the bank booked it
+		if e.Date[:7] != m.dash.key.String() {
+			// Booked in another month and counted in this one.
+			if when, err := time.Parse("2006-01-02", e.Date); err == nil {
+				text = when.Format("02 Jan") + " " + e.Label
+			}
+		}
 	}
 	if e.Planned > 0 && e.Planned != e.Amount {
 		text += " · planned " + e.Planned.String()

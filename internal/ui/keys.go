@@ -59,6 +59,7 @@ func (m Model) screenBindings() (string, []binding) {
 		case stageMatches:
 			return "import", []binding{
 				bind("space", "space", "replace / keep both / unrelated", "replace / keep both / unrelated"),
+				bind("n", "n", "count the row for the month after its date", "next month"),
 				{display: "↑ ↓", action: "move", bar: "move", barKey: "↑/↓"},
 				bind("enter", "enter", "import", "import"),
 				bind("esc", "esc", "back to the preview", "back"),
@@ -107,6 +108,8 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("r", "r", "carry the entry into future months", "recurring"),
 		bind("c", "c", "put the selected expense in a category", "categorise"),
 		bind("u", "u", "payees that have no category yet", "payees"),
+		binding{key: ">", display: ">", action: "move the entry to the next month", bar: "move month", barKey: "</>"},
+		bind("<", "<", "move the entry to the previous month", ""),
 		bind("i", "i", "add income", ""),
 		bind("x", "x", "add an expense", ""),
 		bind("tab", "tab", "switch between income and expenses", "income/expenses"),
