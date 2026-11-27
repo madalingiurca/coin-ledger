@@ -9,8 +9,6 @@ import (
 )
 
 const (
-	// contentMax keeps long lines readable on a wide terminal.
-	contentMax = 68
 	// contentMin is the narrowest layout that still makes sense; below it the
 	// app drops decoration rather than wrapping into nonsense.
 	contentMin = 34
@@ -19,13 +17,12 @@ const (
 )
 
 // contentWidth is the usable width inside the frame for a terminal of w
-// columns. It never returns more than the terminal can hold: a frame wider
-// than the screen tears every line it draws.
+// columns. The panes fill the terminal, like lazygit's: a wide screen gets
+// wide panes rather than a narrow column lost in empty margins. It never
+// returns more than the terminal can hold: a frame wider than the screen
+// tears every line it draws.
 func contentWidth(w int) int {
 	inner := w - paneChrome
-	if inner > contentMax {
-		inner = contentMax
-	}
 	if inner < contentMin {
 		inner = contentMin
 	}

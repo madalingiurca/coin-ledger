@@ -233,13 +233,17 @@ func (m Model) render() string {
 	return view
 }
 
-// sideMin and sideMax bound the totals pane beside the month list, and
-// sideFrom is the narrowest terminal that gets one; below it the totals sit
-// under the list.
+// sideMin is the narrowest totals column beside the month list, and
+// sideFrom the narrowest terminal that gets one; below it the totals sit
+// under the list. The column takes a third of the terminal, so it grows with
+// the screen along with the list beside it.
 const (
 	sideMin  = 30
-	sideMax  = 44
 	sideFrom = 100
+	// listMin is the narrowest month list worth keeping beside a To
+	// categorise column; a terminal with less room keeps that pane in the
+	// main column.
+	listMin = 70
 )
 
 // monthScreen lays out the month: an income pane over an expenses pane, the
@@ -254,22 +258,27 @@ func (m Model) monthScreen(cw, h int) string {
 			w: cw + paneChrome, h: h, focused: true}.render(t)
 	}
 	if m.width >= sideFrom {
-		room := m.width - cw - paneChrome
-		todoBeside := m.dash.hasTodo() && room >= todoMin
-		most := sideMax
+		sideW := max(sideMin, m.width/3)
+		todoBeside := m.dash.hasTodo() && m.width-todoMin >= listMin
 		if todoBeside {
-			most = todoMax
+			sideW = max(todoMin, sideW)
 		}
-		sideW := min(most, max(sideMin, room))
-		listW := min(cw+paneChrome, m.width-sideW)
-		side := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
-		if todoBeside {
-			side = m.todoPane(sideW-paneChrome, max(4, h-lipgloss.Height(side))) + "\n" + side
-		}
-		return lipgloss.JoinHorizontal(lipgloss.Top, m.monthSections(listW-paneChrome, h, !todoBeside), side)
+		listW := m.width - sideW
+		return lipgloss.JoinHorizontal(lipgloss.Top,
+			m.monthSections(listW-paneChrome, h, !todoBeside), m.sideColumn(sideW, h, todoBeside))
 	}
 	totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
 	return m.monthSections(cw, max(6, h-lipgloss.Height(totals)), true) + "\n" + totals
+}
+
+// sideColumn is the column beside the month list: the To categorise pane,
+// when it is there, over the totals.
+func (m Model) sideColumn(w, h int, withTodo bool) string {
+	side := pane{title: "Totals", body: m.monthTotals(w-paneChrome, true), w: w}.render(m.theme)
+	if withTodo {
+		side = m.todoPane(w-paneChrome, max(4, h-lipgloss.Height(side))) + "\n" + side
+	}
+	return side
 }
 
 // incomeShare caps the income pane at this fraction of the height: income is
@@ -277,13 +286,9 @@ func (m Model) monthScreen(cw, h int) string {
 // at most half of what is left.
 const incomeShare = 3
 
-// todoMin and todoMax bound the column beside the month list when it holds
-// the To categorise pane, whose payee names want more room than totals do.
-// A terminal with less room than todoMin keeps the pane in the main column.
-const (
-	todoMin = 44
-	todoMax = 60
-)
+// todoMin is the narrowest column beside the month list that holds the To
+// categorise pane, whose payee names want more room than totals do.
+const todoMin = 44
 
 // monthSections stacks the income pane, sized to what it holds, over the
 // expenses pane, which takes the rest of h. withTodo puts the To categorise

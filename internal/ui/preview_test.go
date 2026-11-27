@@ -85,6 +85,9 @@ func TestPreview(t *testing.T) {
 	short, _ := c.Update(tea.WindowSizeMsg{Width: 100, Height: 22})
 	show("SCROLLED (22 rows)", press(t, short.(Model), "down", "down", "down", "down", "down", "down", "down", "down"))
 
+	wide, _ := c.Update(tea.WindowSizeMsg{Width: 180, Height: 40})
+	show("WIDE (180 cols)", press(t, wide.(Model), "down", "down", "down", "down"))
+
 	narrow := New(s)
 	narrow.openMonth(base)
 	n2, _ := narrow.Update(tea.WindowSizeMsg{Width: 46, Height: 30})
