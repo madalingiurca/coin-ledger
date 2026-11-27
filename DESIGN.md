@@ -173,12 +173,24 @@ Format notes, from the October 2026 exports:
 
 ## Screens
 
-**Month** (home). Income, then expenses under collapsible category headers
+Every screen is a set of bordered panes, after lazygit. A pane's title sits in its top
+border and, for a list, where the cursor is (`9 of 24`) in the bottom one. The screens
+are numbered in their titles and the numbers jump to them: `[1]` month, `[2]` history,
+`[3]` uncategorised payees, `[4]` import. The focused pane's border and title are Rosso
+Corsa 322 (`#D40000`); the rest are in the line colour. The selected row is a background
+bar. The last line of the terminal is the key bar, one line of `Action: key` hints; hints
+that do not fit are left out, and `Keys: ?` always stays. A status message takes the key
+bar's place until the next key. Dialogs (the form, categorise, rename, delete, the
+keybindings menu) open as a focused pane over the middle of the screen, with their keys in
+their bottom border, and the screen behind keeps its place.
+
+**Month** (home). The list fills the height of the terminal, with a Totals pane beside it
+from 100 columns up and a Left pane under it below that. Income, then expenses under collapsible category headers
 (`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and
-a replaced one its planned amount. The list scrolls around the cursor, keeping the title
-and totals in place.
+a replaced one its planned amount. The list scrolls around the cursor; the notes above
+it and the totals stay in place.
 
 **Categorise** (`c` on an expense). Pick a category or type a new one. For an imported
 expense the dialog also offers to remember the payee: the match text starts as the whole
@@ -195,7 +207,9 @@ transactions one by one, for shops where one visit is fuel and the next is coffe
 
 **Import** (`I`), described above. **History** (`h`): the last 24 months with projected
 leftover bars. **Form** (`a`, `i`, `x`, `e`): label, amount, category for expenses (`→`
-completes a known one), recurring. **Help** (`?`).
+completes a known one), recurring. **Keybindings** (`?`): every key the screen answers
+to, then the global ones. Typing filters the list and `enter` runs the chosen binding by
+pressing its key. The key bar is drawn from the same table (`keys.go`), so the two agree.
 
 ## Code layout
 
@@ -211,7 +225,8 @@ internal/
   importer/   importer.go, ing.go, revolut.go; testdata holds invented statements in the
               real layouts
   ui/         app.go routing and framing; month.go; form.go; categorise.go; payees.go;
-              importer.go; history.go; help.go; confirm.go; theme.go; layout.go
+              importer.go; history.go; keys.go (key table, key bar, ? menu); confirm.go;
+              frame.go (panes, key bar, popups); theme.go; layout.go
 ```
 
 Nothing below `ui` imports Bubble Tea, and the UI itself is tested headlessly by feeding
@@ -227,4 +242,5 @@ key presses into `Update` and reading the rendered frame (`go test ./...`).
 - **Damaged month or categories file**: shown, never overwritten, skipped by imports and
   sweeps.
 - **First run, zero income, overspending, narrow terminals**: as before. Prose wraps, data
-  truncates, and the footer wraps rather than dropping hints.
+  truncates. The key bar is one line and leaves out the hints that do not fit; `?`
+  lists all of them.

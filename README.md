@@ -22,7 +22,8 @@ It takes no arguments and no flags. Everything happens on screen:
 | `I` | import a bank statement |
 | `←` / `→`, `t` | previous / next month, back to this month |
 | `h` | history |
-| `?` | every key |
+| `1`–`4` | jump to month, history, uncategorised payees, import |
+| `?` | every key, filterable; `enter` runs one |
 
 **Import.** Export the statement as CSV (ING: the *Extras de cont* CSV; Revolut: the
 account statement CSV, one per currency account), press `I`, pick the file. The
