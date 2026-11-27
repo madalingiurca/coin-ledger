@@ -32,8 +32,8 @@ type Model struct {
 	// in memory and nothing is ever saved over the damaged file.
 	rules    *model.Rules
 	rulesErr error
-	// collapsed is shared with every dash so folded categories stay folded.
-	collapsed map[string]bool
+	// expanded is shared with every dash so unfolded categories stay unfolded.
+	expanded map[string]bool
 
 	width, height int
 	ready         bool
@@ -56,7 +56,7 @@ type Model struct {
 
 // New builds the app opened on the current month.
 func New(s *store.Store) Model {
-	m := Model{store: s, theme: newTheme(true), collapsed: map[string]bool{}}
+	m := Model{store: s, theme: newTheme(true), expanded: map[string]bool{}}
 	m.rules, m.rulesErr = s.LoadRules()
 	if m.rulesErr != nil {
 		m.rules = model.NewRules()

@@ -23,10 +23,11 @@ type dash struct {
 	// is shown read-only and is never written over.
 	loadErr error
 	cursor  int
-	// collapsed names the expense categories whose entries are folded away.
-	// It belongs to the app rather than the month, so a folded category stays
-	// folded while paging through months.
-	collapsed map[string]bool
+	// expanded names the expense categories whose entries are shown.
+	// Categories start folded, showing only their header and total. The set
+	// belongs to the app rather than the month, so an unfolded category stays
+	// unfolded while paging through months.
+	expanded map[string]bool
 }
 
 // row addresses one selectable line. index is -1 for the placeholder line an
@@ -75,7 +76,7 @@ func (d dash) rows() []row {
 	default:
 		for _, c := range d.month.Categories() {
 			out = append(out, row{kind: model.Expense, index: -1, header: true, cat: c.Name})
-			if d.collapsed[c.Name] {
+			if !d.expanded[c.Name] {
 				continue
 			}
 			for _, i := range byDay(d.month.Expenses, func(e model.Entry) bool { return e.Category == c.Name }) {
@@ -131,11 +132,11 @@ func (d *dash) clamp() {
 func (m *Model) openMonth(k model.Key) {
 	res, err := m.store.Get(k)
 	if err != nil {
-		m.dash = dash{key: k, loadErr: err, collapsed: m.collapsed}
+		m.dash = dash{key: k, loadErr: err, expanded: m.expanded}
 		return
 	}
 	m.dash = dash{
-		collapsed:  m.collapsed,
+		expanded:   m.expanded,
 		key:        k,
 		month:      res.Month,
 		onDisk:     res.OnDisk,
@@ -202,7 +203,7 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 
 	case "enter", "space", " ":
 		if r, ok := m.dash.current(); ok && r.header {
-			m.dash.collapsed[r.cat] = !m.dash.collapsed[r.cat]
+			m.dash.expanded[r.cat] = !m.dash.expanded[r.cat]
 			return m, nil
 		}
 		if key != "enter" {
@@ -317,7 +318,7 @@ func (m *Model) useCategory(name string) string {
 // if that is what hides it.
 func (m *Model) selectEntry(kind model.Kind, id string) {
 	if e, ok := m.dash.month.Find(kind, id); ok && kind == model.Expense {
-		delete(m.dash.collapsed, e.Category)
+		m.dash.expanded[e.Category] = true
 	}
 	for i, r := range m.dash.rows() {
 		if r.kind == kind && r.index >= 0 && !r.header && m.dash.month.Entries(kind)[r.index].ID == id {
@@ -485,9 +486,9 @@ func scrollWindow(lines []string, cursor, h int) []string {
 // holds and what it comes to, actual against forecast when it has both.
 func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string {
 	t := m.theme
-	arrow := "▾"
-	if m.dash.collapsed[c.Name] {
-		arrow = "▸"
+	arrow := "▸"
+	if m.dash.expanded[c.Name] {
+		arrow = "▾"
 	}
 	name := c.Name
 	if name == "" {

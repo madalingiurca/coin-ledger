@@ -67,12 +67,22 @@ func TestExpensesAreGroupedByCategory(t *testing.T) {
 
 	m := appOn(t, s, october, testW, testH)
 	screen := plain(m)
+	// Categories start folded: a header and a total each, no entries.
 	mustContain(t, screen,
-		"▾ Uncategorised (1)",
-		"▾ Groceries (2)", "400,00 of 1.500,00",
-		"▾ Transfers (1)", "not counted 500,00",
-		"Wed 14 Oct", "Lidl", "spent so far", "425,00 lei",
+		"▸ Uncategorised (1)",
+		"▸ Groceries (2)", "400,00 of 1.500,00",
+		"▸ Transfers (1)", "not counted 500,00",
+		"spent so far", "425,00 lei",
 	)
+	for _, hidden := range []string{"Lidl", "Bolt", "Wed 14 Oct"} {
+		if strings.Contains(screen, hidden) {
+			t.Errorf("a folded category shows %q:\n%s", hidden, screen)
+		}
+	}
+
+	m = unfoldAll(m)
+	screen = plain(m)
+	mustContain(t, screen, "▾ Uncategorised (1)", "▾ Groceries (2)", "▾ Transfers (1)", "Wed 14 Oct", "Lidl", "Bolt")
 	// Projected: groceries count their forecast, Bolt adds, the transfer does not.
 	mustContain(t, screen, "8.475,00 lei")
 	checkWidth(t, m)
@@ -95,24 +105,40 @@ func TestFoldingACategory(t *testing.T) {
 	if r, _ := m.dash.current(); !r.header || r.cat != "Groceries" {
 		t.Fatalf("cursor is on %+v, want the Groceries header", r)
 	}
+	if screen := plain(m); strings.Contains(screen, "Lidl") || strings.Contains(screen, "Bolt") || !strings.Contains(screen, "▸ Groceries (1)") {
+		t.Errorf("categories do not start folded:\n%s", screen)
+	}
+
 	m = press(t, m, "enter")
 	screen := plain(m)
-	if strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▸ Groceries (1)") {
-		t.Errorf("Groceries did not fold:\n%s", screen)
+	if !strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▾ Groceries (1)") {
+		t.Errorf("Groceries did not unfold:\n%s", screen)
 	}
-	mustContain(t, screen, "Bolt")
+	if strings.Contains(screen, "Bolt") {
+		t.Errorf("unfolding Groceries unfolded Transport too:\n%s", screen)
+	}
 	if m.form != nil {
 		t.Error("enter on a header opened the edit form")
 	}
 
-	// Folding survives a trip to another month and back.
+	// Unfolding survives a trip to another month and back.
 	m = press(t, m, "right", "left")
-	if strings.Contains(plain(m), "Lidl") {
-		t.Error("the category unfolded while paging months")
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Error("the category folded again while paging months")
 	}
 
 	m = press(t, m, "down", "space")
-	mustContain(t, plain(m), "Lidl", "▾ Groceries (1)")
+	if screen := plain(m); strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▸ Groceries (1)") {
+		t.Errorf("space did not fold Groceries back:\n%s", screen)
+	}
+}
+
+// unfoldAll unfolds every expense category of the month on screen.
+func unfoldAll(m Model) Model {
+	for _, c := range m.dash.month.Categories() {
+		m.expanded[c.Name] = true
+	}
+	return m
 }
 
 func TestFormSetsCategoryOnAnExpense(t *testing.T) {
@@ -389,7 +415,7 @@ func TestUncategorisedPayeesScreen(t *testing.T) {
 
 	// Back on the month, the change is visible without reopening it.
 	m = press(t, m, "esc")
-	mustContain(t, plain(m), "▾ Transport (1)")
+	mustContain(t, plain(m), "▸ Transport (1)")
 }
 
 func TestUncategorisedPayeesWhenThereAreNone(t *testing.T) {
@@ -482,7 +508,7 @@ func TestDaysAreBucketed(t *testing.T) {
 	}
 	s := testStore(t)
 	saveMonth(t, s, mo)
-	screen := plain(appOn(t, s, october, testW, testH))
+	screen := plain(unfoldAll(appOn(t, s, october, testW, testH)))
 	at := func(sub string) int { return strings.Index(screen, sub) }
 	order := []string{"Planned", "Groceries budget", "Fri 02 Oct", "Kifla", "Sun 11 Oct", "Lidl", "Penny"}
 	last := -1

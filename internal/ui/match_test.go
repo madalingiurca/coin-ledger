@@ -343,7 +343,7 @@ func TestEntriesAreListedByDay(t *testing.T) {
 			Payee: strings.ToUpper(r.label), Source: model.SourceING, Key: r.label, Category: "Food"})
 	}
 	var got []string
-	for _, row := range (dash{month: mo}).rows() {
+	for _, row := range (dash{month: mo, expanded: map[string]bool{"Food": true}}).rows() {
 		if row.index >= 0 && row.kind == model.Expense {
 			got = append(got, mo.Expenses[row.index].Label)
 		}

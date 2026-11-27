@@ -116,7 +116,10 @@ func (m *Model) renameCategory(from, to string) {
 	} else {
 		m.dash.month.RenameCategory(from, to) // a month not saved yet is not on disk to sweep
 	}
-	delete(m.collapsed, from)
+	if m.expanded[from] {
+		delete(m.expanded, from)
+		m.expanded[to] = true
+	}
 	for i, r := range m.dash.rows() {
 		if r.header && r.cat == to {
 			m.dash.cursor = i
