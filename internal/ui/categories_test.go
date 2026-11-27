@@ -831,3 +831,28 @@ func TestVimKeysFoldCategories(t *testing.T) {
 		t.Error("H did not open the history")
 	}
 }
+
+// tab brings the cursor back to the row it left in a pane, so a run through
+// To categorise can be picked up again after a look at the expenses.
+func TestPanesRememberTheirRow(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.Add(model.Income, "Salary", money.FromLei(10000), true)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Carrefour", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Altex", 420, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "down") // the second row to categorise
+	_, want, _ := m.dash.currentEntry()
+
+	m = press(t, m, "tab", "tab", "tab")
+	if _, got, ok := m.dash.currentEntry(); !ok || got.ID != want.ID {
+		t.Errorf("tab round the panes came back to %+v, want %s", got, want.Label)
+	}
+	m = press(t, m, "shift+tab", "tab")
+	if _, got, ok := m.dash.currentEntry(); !ok || got.ID != want.ID {
+		t.Errorf("shift+tab and back came back to %+v, want %s", got, want.Label)
+	}
+}

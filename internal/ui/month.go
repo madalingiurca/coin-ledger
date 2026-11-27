@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -31,6 +32,10 @@ type dash struct {
 	// marked are the expenses picked with space, to be categorised together.
 	// They belong to the month: paging away drops them.
 	marked map[string]bool
+	// lastIn is the row the cursor was on when it last left each pane, so
+	// tab brings it back there rather than to the pane's top. It belongs to
+	// the month, like the marks.
+	lastIn map[int]string
 }
 
 // markedIDs lists the marked expenses still in the month, in list order.
@@ -629,8 +634,45 @@ func (d *dash) fold() {
 	}
 }
 
-// jumpSection moves the cursor to the first row of the next pane, round to
-// the first after the last.
+// rowKey names a row by what it shows rather than where it is, so it can be
+// found again after rows above it come or go. Placeholders have no key.
+func (d dash) rowKey(r row) string {
+	switch {
+	case r.header:
+		return "cat:" + r.cat
+	case r.index < 0:
+		return ""
+	}
+	return fmt.Sprintf("%d:%s", r.kind, d.month.Entries(r.kind)[r.index].ID)
+}
+
+// enterPane moves the cursor into the pane whose first row is start: back
+// onto the row it left there, while that row is still in the pane, or
+// else onto the first.
+func (d *dash) enterPane(start int) {
+	rows := d.rows()
+	if r, ok := d.current(); ok {
+		if d.lastIn == nil {
+			d.lastIn = map[int]string{}
+		}
+		d.lastIn[r.section()] = d.rowKey(r)
+	}
+	d.cursor = start
+	sec := rows[start].section()
+	want := d.lastIn[sec]
+	if want == "" {
+		return
+	}
+	for i := start; i < len(rows) && rows[i].section() == sec; i++ {
+		if d.rowKey(rows[i]) == want {
+			d.cursor = i
+			return
+		}
+	}
+}
+
+// jumpSection moves the cursor to the next pane, round to the first after
+// the last.
 func (d *dash) jumpSection() {
 	r, ok := d.current()
 	if !ok {
@@ -639,15 +681,15 @@ func (d *dash) jumpSection() {
 	rows := d.rows()
 	for i := d.cursor + 1; i < len(rows); i++ {
 		if rows[i].section() != r.section() {
-			d.cursor = i
+			d.enterPane(i)
 			return
 		}
 	}
-	d.cursor = 0
+	d.enterPane(0)
 }
 
-// jumpSectionBack moves the cursor to the first row of the previous pane,
-// round to the last after the first.
+// jumpSectionBack moves the cursor to the previous pane, round to the last
+// after the first.
 func (d *dash) jumpSectionBack() {
 	r, ok := d.current()
 	if !ok {
@@ -667,7 +709,7 @@ func (d *dash) jumpSectionBack() {
 	for prev > 0 && rows[prev-1].section() == rows[prev].section() {
 		prev--
 	}
-	d.cursor = prev
+	d.enterPane(prev)
 }
 
 // monthTotals is what the totals pane shows. full adds the income and
