@@ -322,29 +322,6 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 	m.dash.clamp()
 }
 
-func (m Model) monthHints() []hint {
-	if m.dash.loadErr != nil {
-		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit"), keyHint("?", "keys")}
-	}
-	edit := "edit"
-	if r, ok := m.dash.current(); ok && r.header {
-		edit = "rename"
-	}
-	return []hint{
-		keyHint("a", "add"),
-		keyHint("e", edit),
-		keyHint("d", "delete"),
-		keyHint("r", "recurring"),
-		keyHint("c", "categorise"),
-		keyHint("u", "payees"),
-		keyHint("I", "import"),
-		keyHint("←/→", "month"),
-		keyHint("h", "history"),
-		keyHint("q", "quit"),
-		keyHint("?", "keys"),
-	}
-}
-
 // monthTitle names the month pane: its jump key and the month.
 func (m Model) monthTitle() string { return "[1] " + m.dash.key.Label() }
 

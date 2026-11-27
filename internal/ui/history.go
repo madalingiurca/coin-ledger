@@ -60,16 +60,6 @@ func (m Model) historyKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) historyHints() []hint {
-	return []hint{
-		keyHint("↑/↓", "select"),
-		keyHint("enter", "open month"),
-		keyHint("esc", "back"),
-		keyHint("q", "quit"),
-		keyHint("?", "keys"),
-	}
-}
-
 func (m Model) historyView(cw int) string {
 	t := m.theme
 	var lines []string

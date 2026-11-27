@@ -47,7 +47,7 @@ type Model struct {
 	cat     *catState
 	rename  *renameState
 	confirm *confirmState
-	help    bool
+	menu    *menuState
 
 	status  string
 	isError bool
@@ -111,9 +111,8 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.catKey(msg)
 	case m.confirm != nil:
 		return m.confirmKey(key)
-	case m.help:
-		m.help = false
-		return m, nil
+	case m.menu != nil:
+		return m.menuKey(msg)
 	}
 
 	// Any other keystroke retires the last status message.
@@ -123,7 +122,7 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "q":
 		return m, tea.Quit
 	case "?":
-		m.help = true
+		m.menu = &menuState{}
 		return m, nil
 	case "1", "2", "3", "4":
 		return m.jump(key)
@@ -178,28 +177,22 @@ func (m Model) render() string {
 	h := max(3, m.height-1)
 
 	var block string
-	var hints []hint
+	hints := m.barHints()
 	switch {
-	case m.help:
-		block = pane{title: "Keys", body: m.helpView(cw), w: mainW, h: h, focused: true}.render(t)
-		hints = []hint{keyHint("any key", "back")}
 	case m.screen == screenHistory:
 		block = pane{title: "[2] History", counter: counter(m.hist.cursor, len(m.hist.rows)),
 			body: m.historyView(cw), w: mainW, h: h, focused: true}.render(t)
-		hints = m.historyHints()
 	case m.screen == screenImport:
 		block = pane{title: m.importTitle(), counter: m.importCounter(),
 			body: m.importView(cw, h-2), w: mainW, h: h, focused: true}.render(t)
-		hints = m.importHints()
 	case m.screen == screenPayees:
 		block = pane{title: m.payeesTitle(), counter: m.payeesCounter(),
 			body: m.payeesView(cw, h-2), w: mainW, h: h, focused: !m.dialogOpen()}.render(t)
-		hints = m.payeesHints()
 	default:
-		block, hints = m.monthScreen(cw, h), m.monthHints()
+		block = m.monthScreen(cw, h)
 	}
 	if m.dialogOpen() {
-		block, hints = m.withPopup(block, cw), nil
+		block, hints = m.withPopup(block, cw, h), nil
 	}
 
 	blockW := lipgloss.Width(block)
@@ -252,7 +245,7 @@ func (m Model) monthScreen(cw, h int) string {
 
 // dialogOpen reports whether a dialog has the keyboard.
 func (m Model) dialogOpen() bool {
-	return m.form != nil || m.rename != nil || m.cat != nil || m.confirm != nil
+	return m.form != nil || m.rename != nil || m.cat != nil || m.confirm != nil || m.menu != nil
 }
 
 // popupMax caps a dialog's content width; a form stretched across a wide
@@ -261,7 +254,7 @@ const popupMax = 56
 
 // withPopup draws any open dialog as a focused pane over the middle of the
 // screen, which stays in view behind it.
-func (m Model) withPopup(screen string, cw int) string {
+func (m Model) withPopup(screen string, cw, h int) string {
 	t := m.theme
 	pcw := min(cw, popupMax)
 	p := pane{w: pcw + paneChrome, focused: true}
@@ -274,13 +267,16 @@ func (m Model) withPopup(screen string, cw int) string {
 		p.title, p.body, p.hints = m.cat.title, m.cat.view(t, pcw), m.cat.hints()
 	case m.confirm != nil:
 		p.title, p.body, p.hints = "Delete", m.confirmPrompt(pcw), "y delete · n keep"
+	case m.menu != nil:
+		name, _ := m.screenBindings()
+		p.title, p.body, p.hints = "Keybindings: "+name, m.menuView(pcw, max(1, h-4)), "enter run · esc close"
 	default:
 		return screen
 	}
 	popup := p.render(t)
 
 	w := max(lipgloss.Width(screen), lipgloss.Width(popup))
-	h := max(lipgloss.Height(screen), lipgloss.Height(popup))
+	h = max(lipgloss.Height(screen), lipgloss.Height(popup))
 	x := max(0, (lipgloss.Width(screen)-lipgloss.Width(popup))/2)
 	y := max(0, (lipgloss.Height(screen)-lipgloss.Height(popup))/2)
 	return lipgloss.NewCanvas(w, h).Compose(lipgloss.NewCompositor(

@@ -411,17 +411,29 @@ func TestHistoryWithNothingSaved(t *testing.T) {
 	}
 }
 
-func TestHelpOverlay(t *testing.T) {
+func TestKeybindingsMenu(t *testing.T) {
 	m := app(t, testStore(t))
 	m = press(t, m, "?")
 	screen := plain(m)
-	mustContain(t, screen, "keys", "add to the section the cursor is in",
-		"previous / next month", "Months are saved in")
+	mustContain(t, screen, "Keybindings: month", "add to the section the cursor is in",
+		"previous month", "Global", "Months are saved in", "enter run · esc close")
 	checkWidth(t, m)
 
-	m = press(t, m, "j") // any key closes it
-	if m.help {
-		t.Error("help should close on the next keypress")
+	// Typing narrows the list; enter runs what is left.
+	m = press(t, m, typing("hist")...)
+	screen = plain(m)
+	mustContain(t, screen, "history of the last 24 months")
+	if strings.Contains(screen, "add to the section") {
+		t.Errorf("the filter kept rows that do not match:\n%s", screen)
+	}
+	m = press(t, m, "enter")
+	if m.menu != nil || m.screen != screenHistory {
+		t.Errorf("enter did not run the binding: menu open %v, screen %d", m.menu != nil, m.screen)
+	}
+
+	m = press(t, m, "?", "esc")
+	if m.menu != nil {
+		t.Error("esc should close the menu")
 	}
 }
 

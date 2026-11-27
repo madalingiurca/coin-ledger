@@ -114,23 +114,6 @@ func (m Model) payeeDetailKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) payeesHints() []hint {
-	if d := m.payees.detail; d != nil {
-		return []hint{keyHint("enter", "categorise this one"), keyHint("↑/↓", "move"), keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
-	}
-	if len(m.payees.rows) == 0 {
-		return []hint{keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
-	}
-	return []hint{
-		keyHint("enter", "categorise all"),
-		keyHint("→", "one by one"),
-		keyHint("↑/↓", "move"),
-		keyHint("esc", "back"),
-		keyHint("q", "quit"),
-		keyHint("?", "keys"),
-	}
-}
-
 // payeesTitle names the payees pane, or the payee open in it.
 func (m Model) payeesTitle() string {
 	if d := m.payees.detail; d != nil {

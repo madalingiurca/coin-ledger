@@ -441,26 +441,6 @@ func (m *Model) commitImport() {
 	m.setStatus("Imported %s into %s", plural(added, "entry", "entries"), plural(months, "month", "months"))
 }
 
-func (m Model) importHints() []hint {
-	if m.imp.stage == stageMatches {
-		return []hint{keyHint("space", "replace / keep both / unrelated"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
-	}
-	if m.imp.stage == stagePreview {
-		if m.imp.newCount() == 0 {
-			return []hint{keyHint("esc", "back"), keyHint("enter", "close"), keyHint("q", "quit"), keyHint("?", "keys")}
-		}
-		return []hint{keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
-	}
-	return []hint{
-		keyHint("enter", "open"),
-		keyHint("←", "up a folder"),
-		keyHint("~", "home"),
-		keyHint("esc", "cancel"),
-		keyHint("q", "quit"),
-		keyHint("?", "keys"),
-	}
-}
-
 func (s *importState) newCount() int {
 	n := 0
 	for _, im := range s.months {
