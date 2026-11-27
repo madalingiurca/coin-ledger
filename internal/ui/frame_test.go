@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
+
+	"github.com/madalingiurca/budget/internal/model"
+	"github.com/madalingiurca/budget/internal/money"
 )
 
 func TestPaneDrawsTitleAndCounterInTheBorder(t *testing.T) {
@@ -87,4 +90,29 @@ func TestNumberKeysJumpBetweenScreens(t *testing.T) {
 		}
 		mustContain(t, plain(m), step.title)
 	}
+}
+
+// A dialog opens over the screen rather than under it: the month stays where
+// it was, the screen keeps its height, and the dialog carries its keys.
+func TestDialogsOpenOverTheScreen(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(model.Today())
+	mo.Add(model.Income, "Salary", money.FromLei(12500), true)
+	if err := s.Save(mo); err != nil {
+		t.Fatal(err)
+	}
+	m := app(t, s)
+	height := strings.Count(plain(m), "\n")
+
+	for _, key := range []string{"a", "d"} {
+		open := press(t, m, key)
+		screen := plain(open)
+		if got := strings.Count(screen, "\n"); got != height {
+			t.Errorf("%s: screen is %d lines with the dialog, %d without", key, got, height)
+		}
+		mustContain(t, screen, "[1] "+model.Today().Label())
+		checkWidth(t, open)
+	}
+	mustContain(t, plain(press(t, m, "a")), "Add income", "esc cancel─╯")
+	mustContain(t, plain(press(t, m, "d")), "Delete Salary", "y delete · n keep─╯")
 }

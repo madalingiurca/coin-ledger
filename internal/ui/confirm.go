@@ -7,8 +7,7 @@ import (
 	"github.com/madalingiurca/budget/internal/money"
 )
 
-// confirmState is the delete prompt. It lives in the status line rather than a
-// dialog: one question, one keypress.
+// confirmState is the delete prompt: one question, one keypress.
 type confirmState struct {
 	kind   model.Kind
 	id     string
@@ -37,8 +36,5 @@ func (m Model) confirmKey(key string) (tea.Model, tea.Cmd) {
 
 func (m Model) confirmPrompt(cw int) string {
 	c := m.confirm
-	t := m.theme
-	question := "Delete " + c.label + " (" + c.amount.Lei() + ")?"
-	return t.Danger.Render(truncate(question, cw)) + " " +
-		t.Key.Render("y") + t.Footer.Render(" / ") + t.Key.Render("n")
+	return wrap(m.theme.Danger, cw, "Delete "+c.label+" ("+c.amount.Lei()+")?")
 }

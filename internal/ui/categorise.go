@@ -388,10 +388,13 @@ func (c *catState) view(t Theme, cw int) string {
 	if c.err != "" {
 		lines = append(lines, "", t.Danger.Render(truncate(c.err, cw)))
 	}
-	keys := "↑↓ choose · enter save · esc cancel"
-	if c.hasRule() {
-		keys = "↑↓ choose · tab next · enter save · esc cancel"
-	}
-	lines = append(lines, "", t.Footer.Render(truncate(keys, cw)))
 	return strings.Join(lines, "\n")
+}
+
+// hints are the dialog's keys, shown in its bottom border.
+func (c *catState) hints() string {
+	if c.hasRule() {
+		return "↑↓ choose · tab next · enter save · esc cancel"
+	}
+	return "↑↓ choose · enter save · esc cancel"
 }

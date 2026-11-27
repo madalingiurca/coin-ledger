@@ -213,12 +213,15 @@ func (f *formState) view(t Theme, cw int) string {
 	if f.err != "" {
 		lines = append(lines, "", t.Danger.Render(truncate(f.err, cw)))
 	}
-	keys := "tab next · space toggle · enter save · esc cancel"
-	if f.focus == fieldCategory {
-		keys = "→ complete · tab next · enter save · esc cancel"
-	}
-	lines = append(lines, "", t.Footer.Render(truncate(keys, cw)))
 	return strings.Join(lines, "\n")
+}
+
+// hints are the dialog's keys, shown in its bottom border.
+func (f *formState) hints() string {
+	if f.focus == fieldCategory {
+		return "→ complete · tab next · enter save · esc cancel"
+	}
+	return "tab next · space toggle · enter save · esc cancel"
 }
 
 func (f *formState) fieldLine(t Theme, name, input string, focused bool) string {

@@ -192,12 +192,14 @@ func (m Model) render() string {
 			body: m.importView(cw, h-2), w: mainW, h: h, focused: true}.render(t)
 		hints = m.importHints()
 	case m.screen == screenPayees:
-		block, hints = m.stackDialog(cw, h, func(cw, h int) string {
-			return pane{title: m.payeesTitle(), counter: m.payeesCounter(),
-				body: m.payeesView(cw, h-2), w: cw + paneChrome, h: h, focused: m.cat == nil}.render(t)
-		}), m.payeesHints()
+		block = pane{title: m.payeesTitle(), counter: m.payeesCounter(),
+			body: m.payeesView(cw, h-2), w: mainW, h: h, focused: !m.dialogOpen()}.render(t)
+		hints = m.payeesHints()
 	default:
 		block, hints = m.monthScreen(cw, h), m.monthHints()
+	}
+	if m.dialogOpen() {
+		block, hints = m.withPopup(block, cw), nil
 	}
 
 	blockW := lipgloss.Width(block)
@@ -223,9 +225,8 @@ const (
 	sideFrom = 100
 )
 
-// monthScreen lays out the month: the list as the focused pane, the totals
-// beside it on a wide terminal and under it on a narrow one, and an open
-// dialog beneath both.
+// monthScreen lays out the month: the list as the focused pane, and the
+// totals beside it on a wide terminal and under it on a narrow one.
 func (m Model) monthScreen(cw, h int) string {
 	t := m.theme
 	if m.dash.month == nil {
@@ -235,52 +236,63 @@ func (m Model) monthScreen(cw, h int) string {
 	if m.width >= sideFrom {
 		sideW := min(sideMax, max(sideMin, m.width-cw-paneChrome))
 		listW := min(cw+paneChrome, m.width-sideW)
-		return m.stackDialog(listW-paneChrome, h, func(lcw, h int) string {
-			body, count := m.monthList(lcw, h-2)
-			list := pane{title: m.monthTitle(), counter: count, body: body,
-				w: lcw + paneChrome, h: h, focused: !m.dialogOpen()}.render(t)
-			totals := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
-			return lipgloss.JoinHorizontal(lipgloss.Top, list, totals)
-		})
-	}
-	return m.stackDialog(cw, h, func(cw, h int) string {
-		totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
-		listH := max(3, h-lipgloss.Height(totals))
-		body, count := m.monthList(cw, listH-2)
+		body, count := m.monthList(listW-paneChrome, h-2)
 		list := pane{title: m.monthTitle(), counter: count, body: body,
-			w: cw + paneChrome, h: listH, focused: !m.dialogOpen()}.render(t)
-		return list + "\n" + totals
-	})
+			w: listW, h: h, focused: !m.dialogOpen()}.render(t)
+		totals := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
+		return lipgloss.JoinHorizontal(lipgloss.Top, list, totals)
+	}
+	totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
+	listH := max(3, h-lipgloss.Height(totals))
+	body, count := m.monthList(cw, listH-2)
+	list := pane{title: m.monthTitle(), counter: count, body: body,
+		w: cw + paneChrome, h: listH, focused: !m.dialogOpen()}.render(t)
+	return list + "\n" + totals
 }
 
 // dialogOpen reports whether a dialog has the keyboard.
-func (m Model) dialogOpen() bool { return m.form != nil || m.rename != nil || m.cat != nil }
-
-// stackDialog draws a screen with any open dialog in a focused pane beneath
-// it, giving the screen whatever height the dialog leaves.
-func (m Model) stackDialog(cw, h int, screen func(cw, h int) string) string {
-	t := m.theme
-	var title, body string
-	switch {
-	case m.form != nil:
-		title, body = m.form.title(), m.form.view(t, cw)
-	case m.rename != nil:
-		title, body = "Rename "+m.rename.from, m.rename.view(t, cw)
-	case m.cat != nil:
-		title, body = m.cat.title, m.cat.view(t, cw)
-	default:
-		return screen(cw, h)
-	}
-	dialog := pane{title: title, body: body, w: cw + paneChrome, focused: true}.render(t)
-	return screen(cw, max(3, h-lipgloss.Height(dialog))) + "\n" + dialog
+func (m Model) dialogOpen() bool {
+	return m.form != nil || m.rename != nil || m.cat != nil || m.confirm != nil
 }
 
-// bottomLine is the last line of the screen: a delete to confirm, else the
-// latest status, else the keys for what is on screen.
+// popupMax caps a dialog's content width; a form stretched across a wide
+// terminal is harder to read, not easier.
+const popupMax = 56
+
+// withPopup draws any open dialog as a focused pane over the middle of the
+// screen, which stays in view behind it.
+func (m Model) withPopup(screen string, cw int) string {
+	t := m.theme
+	pcw := min(cw, popupMax)
+	p := pane{w: pcw + paneChrome, focused: true}
+	switch {
+	case m.form != nil:
+		p.title, p.body, p.hints = m.form.title(), m.form.view(t, pcw), m.form.hints()
+	case m.rename != nil:
+		p.title, p.body, p.hints = "Rename "+m.rename.from, m.rename.view(t, pcw), "enter save · esc cancel"
+	case m.cat != nil:
+		p.title, p.body, p.hints = m.cat.title, m.cat.view(t, pcw), m.cat.hints()
+	case m.confirm != nil:
+		p.title, p.body, p.hints = "Delete", m.confirmPrompt(pcw), "y delete · n keep"
+	default:
+		return screen
+	}
+	popup := p.render(t)
+
+	w := max(lipgloss.Width(screen), lipgloss.Width(popup))
+	h := max(lipgloss.Height(screen), lipgloss.Height(popup))
+	x := max(0, (lipgloss.Width(screen)-lipgloss.Width(popup))/2)
+	y := max(0, (lipgloss.Height(screen)-lipgloss.Height(popup))/2)
+	return lipgloss.NewCanvas(w, h).Compose(lipgloss.NewCompositor(
+		lipgloss.NewLayer(screen),
+		lipgloss.NewLayer(popup).X(x).Y(y).Z(1),
+	)).Render()
+}
+
+// bottomLine is the last line of the screen: the latest status, else the
+// keys for what is on screen. A dialog carries its own keys.
 func (m Model) bottomLine(w int, hints []hint) string {
 	switch {
-	case m.confirm != nil:
-		return m.confirmPrompt(w)
 	case m.status != "":
 		style := m.theme.Notice
 		if m.isError {

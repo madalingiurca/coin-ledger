@@ -42,7 +42,6 @@ func (r *renameState) view(t Theme, cw int) string {
 	if r.err != "" {
 		lines = append(lines, "", t.Danger.Render(truncate(r.err, cw)))
 	}
-	lines = append(lines, "", t.Footer.Render(truncate("enter save · esc cancel", cw)))
 	return strings.Join(lines, "\n")
 }
 
