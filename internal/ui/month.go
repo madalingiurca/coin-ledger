@@ -259,6 +259,8 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.cursor = len(m.dash.rows()) - 1
 	case "tab":
 		m.dash.jumpSection()
+	case "shift+tab":
+		m.dash.jumpSectionBack()
 	case "right":
 		m.dash.unfold()
 	case "left":
@@ -638,6 +640,30 @@ func (d *dash) jumpSection() {
 		}
 	}
 	d.cursor = 0
+}
+
+// jumpSectionBack moves the cursor to the first row of the previous pane,
+// round to the last after the first.
+func (d *dash) jumpSectionBack() {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	rows := d.rows()
+	// The pane before is whichever one the row above this pane's first row
+	// is in; from the first pane it is the last.
+	start := d.cursor
+	for start > 0 && rows[start-1].section() == r.section() {
+		start--
+	}
+	prev := len(rows) - 1
+	if start > 0 {
+		prev = start - 1
+	}
+	for prev > 0 && rows[prev-1].section() == rows[prev].section() {
+		prev--
+	}
+	d.cursor = prev
 }
 
 // monthTotals is what the totals pane shows. full adds the income and

@@ -744,6 +744,22 @@ func TestToCategorisePane(t *testing.T) {
 		if want := []int{secIncome, secTodo, secExpense, secIncome}; fmt.Sprint(sections) != fmt.Sprint(want) {
 			t.Errorf("width %d: tab visits %v, want %v", w, sections, want)
 		}
+
+		// shift+tab goes round the other way, from any row of a pane. The
+		// last tab left the cursor on the first row to categorise; start on
+		// the second.
+		m = press(t, m, "down")
+		sections = sections[:0]
+		for range 4 {
+			sections = append(sections, m.cursorSection())
+			m = press(t, m, "shift+tab")
+		}
+		if want := []int{secTodo, secIncome, secExpense, secTodo}; fmt.Sprint(sections) != fmt.Sprint(want) {
+			t.Errorf("width %d: shift+tab visits %v, want %v", w, sections, want)
+		}
+		if m.dash.cursor != 0 {
+			t.Errorf("width %d: shift+tab landed on row %d, not the income row", w, m.dash.cursor)
+		}
 	}
 }
 

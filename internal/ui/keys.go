@@ -120,7 +120,8 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("<", "<", "move the entry to the previous month", ""),
 		bind("i", "i", "add income", ""),
 		bind("x", "x", "add an expense", ""),
-		bind("tab", "tab", "jump to the next pane", "next pane"),
+		binding{key: "tab", display: "tab", action: "jump to the next pane", bar: "pane", barKey: "tab/⇧tab"},
+		bind("shift+tab", "shift+tab", "jump to the previous pane", ""),
 		binding{display: "↑ ↓ j k", action: "move the cursor"},
 		bind("g", "g G", "first / last row", ""),
 	)
@@ -310,6 +311,8 @@ func keyPress(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "left":
 		return tea.KeyPressMsg{Code: tea.KeyLeft}
 	case "right":
