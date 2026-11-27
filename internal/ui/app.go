@@ -34,6 +34,9 @@ type Model struct {
 	rulesErr error
 	// expanded is shared with every dash so unfolded categories stay unfolded.
 	expanded map[string]bool
+	// stats is the breakdown the totals pane shows below its figures, kept
+	// while paging through months.
+	stats statsView
 
 	width, height int
 	ready         bool
@@ -287,7 +290,7 @@ func (m Model) sideColumn(w, h int, withTodo bool) string {
 		todo = m.todoPane(cw, todoH) + "\n"
 	}
 	sideH := max(totalsH, h-todoH)
-	if b := m.categoryBreakdown(cw, sideH-totalsH-1); b != "" {
+	if b := m.statsPanel(cw, sideH-totalsH-1); b != "" {
 		totals += "\n\n" + b
 	}
 	return todo + pane{title: "Totals", body: totals, w: w, h: sideH}.render(t)

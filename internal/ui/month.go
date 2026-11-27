@@ -318,6 +318,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.startLink()
 	case "u":
 		m.openPayees()
+	case "s":
+		m.stats = m.stats.next(1)
+	case "S":
+		m.stats = m.stats.next(-1)
 	case ">":
 		m.startMove(1)
 	case "<":
@@ -693,66 +697,6 @@ func (m Model) monthTotals(cw int, full bool) string {
 	lines = append(lines, m.leftLine(cw))
 	if b := m.leftBar(cw); b != "" {
 		lines = append(lines, b)
-	}
-	return strings.Join(lines, "\n")
-}
-
-// categoryBreakdown shows where the month's money went: each category that
-// counts, largest first, as a share of all expenses. It fills the space the
-// totals pane has below its figures, so it draws only as many categories as
-// fit in h lines, the last line saying how many were left out.
-func (m Model) categoryBreakdown(cw, h int) string {
-	t := m.theme
-	total := m.dash.month.Total(model.Expense)
-	if h < 2 || total <= 0 || cw < 24 {
-		return ""
-	}
-	var cats []model.CategoryTotal
-	for _, c := range m.dash.month.Categories() {
-		if c.Projected > 0 {
-			cats = append(cats, c)
-		}
-	}
-	if len(cats) == 0 {
-		return ""
-	}
-	sort.SliceStable(cats, func(i, j int) bool { return cats[i].Projected > cats[j].Projected })
-
-	rows := len(cats)
-	more := 0
-	if rows > h-1 {
-		rows = max(0, h-2)
-		more = len(cats) - rows
-	}
-	if rows == 0 {
-		return ""
-	}
-
-	amtW, longest := 0, 0
-	for _, c := range cats[:rows] {
-		amtW = max(amtW, lipgloss.Width(c.Projected.String()))
-		longest = max(longest, lipgloss.Width(categoryName(c.Name)))
-	}
-	// The names take what they need, up to 24 cells, as long as the bar
-	// keeps at least 6.
-	nameW := max(4, min(longest+1, 24, cw-amtW-1-6))
-	barW := max(0, cw-nameW-amtW-1)
-
-	lines := []string{t.Section.Render("BY CATEGORY")}
-	for _, c := range cats[:rows] {
-		name := categoryName(c.Name)
-		pct := int(c.Projected * 100 / total)
-		if pct == 0 && c.Projected > 0 {
-			pct = 1
-		}
-		line := t.Label.Render(padRight(truncate(name, nameW-1), nameW))
-		if barW > 0 {
-			line += bar(t, barW, pct) + " "
-		}
-		lines = append(lines, line+t.Amount.Render(padLeft(c.Projected.String(), amtW)))
-	}
-	if more > 0 {
-		lines = append(lines, t.Muted.Render("+ "+itoa(more)+" more"))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -116,6 +116,7 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("c", "c", "put the selected expense, or the marked ones, in a category", "categorise"),
 		bind("space", "space", "mark expenses to categorise together; esc clears", ""),
 		bind("u", "u", "payees that have no category yet", "payees"),
+		binding{key: "s", display: "s S", action: "next / previous statistics in the totals pane", bar: "stats", barKey: "s"},
 		binding{key: ">", display: ">", action: "move the entry to the next month", bar: "move month", barKey: "</>"},
 		bind("<", "<", "move the entry to the previous month", ""),
 		bind("i", "i", "add income", ""),
