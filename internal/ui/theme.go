@@ -35,7 +35,24 @@ type Theme struct {
 	Form     lipgloss.Style
 	Field    lipgloss.Style
 	FieldOn  lipgloss.Style
+
+	// The pane frame. The focused pane's border and title are Rosso Corsa;
+	// every other pane recedes into the line colour.
+	BorderActive     lipgloss.Style
+	BorderInactive   lipgloss.Style
+	TitleActive      lipgloss.Style
+	TitleInactive    lipgloss.Style
+	SelectedActive   lipgloss.Style
+	SelectedInactive lipgloss.Style
+	Counter          lipgloss.Style
+	BarKey           lipgloss.Style
+	BarText          lipgloss.Style
 }
+
+// rossoCorsa is Ferrari's Rosso Corsa 322, the focus colour. It reads on both
+// light and dark backgrounds, so it is not resolved per background.
+const rossoCorsa = "#D40000"
+
 
 func newTheme(dark bool) Theme {
 	c := lipgloss.LightDark(dark)
@@ -49,6 +66,8 @@ func newTheme(dark bool) Theme {
 		yellow  = c(lipgloss.Color("#9a6700"), lipgloss.Color("#e3b341"))
 		line    = c(lipgloss.Color("#d0d7de"), lipgloss.Color("#30363d"))
 		selectd = c(lipgloss.Color("#eaeef2"), lipgloss.Color("#21262d"))
+		bar     = c(lipgloss.Color("#ddf4ff"), lipgloss.Color("#1f3a5f"))
+		focus   = lipgloss.Color(rossoCorsa)
 	)
 
 	base := lipgloss.NewStyle()
@@ -80,5 +99,15 @@ func newTheme(dark bool) Theme {
 			Padding(1, 2),
 		Field:   base.Foreground(muted),
 		FieldOn: base.Bold(true).Foreground(accent),
+
+		BorderActive:     base.Bold(true).Foreground(focus),
+		BorderInactive:   base.Foreground(line),
+		TitleActive:      base.Bold(true).Foreground(focus),
+		TitleInactive:    base.Foreground(muted),
+		SelectedActive:   base.Foreground(fg).Background(bar),
+		SelectedInactive: base.Bold(true).Foreground(fg),
+		Counter:          base.Foreground(muted),
+		BarKey:           base.Bold(true).Foreground(accent),
+		BarText:          base.Foreground(muted),
 	}
 }
