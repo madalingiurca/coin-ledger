@@ -21,5 +21,13 @@ Titular cont: DL Ion Popescu,,,,,,,,,
 05 noiembrie 2026,,,Plati cu cardul de tip transfer fonduri,,,"100,00",,,
 ,,,Numar card:**** 1111,,,,,,
 ,,,Tranzactie la:Revolut**9999*  IE  Dublin,,,,,,
+,Semnatura Unu,,,,Semnatura Doi,,,
+Titular cont: DL Ion Popescu,,,,,,,,
+,Data,,,Detalii tranzactie,,,Debit,Credit
 Sold iniţial:,,,"1.000,00",,,,,,
 Sold final:,,,"596,13",,,,,,
+din care suma tranzacţiilor în aşteptare(în curs de decontare):,,,,,,"52,50",,,
+,Data,,,,Beneficiar,,Valoare tranzacţie,,
+30 noiembrie 2026,,,,EXEMPLU CAFE,,,,,"12,50"
+30 noiembrie 2026,,,,Bolt,,,,,"40,00"
+,Semnatura Unu,,,,,,,Semnatura Doi,
