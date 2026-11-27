@@ -83,7 +83,8 @@ reads as before.
     { "match": "BOLT",       "category": "Transport" },
     { "match": "CARREFOUR",  "category": "Groceries" }
   ],
-  "links": [{ "match": "RATA CREDIT", "label": "Mortgage" }]
+  "links": [{ "match": "RATA CREDIT", "label": "Mortgage" }],
+  "next_month": [{ "match": "EXEMPLU SRL", "from_day": 27 }]
 }
 ```
 
@@ -92,6 +93,10 @@ reads as before.
   them all. A rule only ever fills an *empty* category: an expense filed by hand stays put.
 - A **link** remembers that rows from a payee replaced a forecast entry with that label,
   so the next import proposes the same replacement whatever the amount.
+- A **next-month rule** says rows from a payee booked on `from_day` or later count for the
+  month after: the salary due on the 1st arrives early when the 1st is a weekend or a
+  holiday. Moving such a row forward (in the import, or with `>` later) teaches it, with the
+  earliest day seen; moving a row it moved back forgets it.
 - **Transfers** is built in and never counted. Out of the box it catches money moving
   between your own ING and Revolut accounts (the ING card top-up and the matching Revolut
   `Top-up by` row). Round Ups and savings deposits *do* count: they arrive as "Round Up" or
@@ -122,7 +127,7 @@ over the other:
   and spend 1.230 and the month still expects 1.500; spend 1.700 and it counts 1.700. A plan
   and the bank rows that fulfil it are never counted twice.
 - **Uncategorised forecast and actual add up**, because nothing ties them together.
-- **Income** adds up: planned and received are not tied together, so a typed salary counts beside the transfers the bank reports. A bank row that is the salary should replace it in the import.
+- **Income** adds up: planned and received are not tied together, so a typed salary counts beside the transfers the bank reports. A bank row that is the salary should replace it in the import; a replaced entry then counts what arrived, once.
 - **Transfers** count for nothing.
 
 So a month with no imports totals exactly its plan, and the header shows *spent so far*
@@ -151,7 +156,12 @@ or import, so browsing ahead leaves no files.
    and expenses to add, how many the rules file, how many are uncategorised, transfers,
    rows already imported, and whether the file matches the bank's own balance (ING: opening
    + transactions = closing; Revolut: the running balance on every row).
-3. If rows look like forecast entries, a step lists each pair to replace or keep both.
+3. If rows look like forecast entries, a step lists each pair to replace or keep both. In
+   that step `n` counts a row for the month after its date (a salary paid early): it moves
+   there, is matched against that month's plan instead, and its payee gets a next-month
+   rule. Rows a rule moved are listed there too, so they can be moved back. Duplicate
+   detection looks in the row's month and the months either side, so a moved row is never
+   imported twice.
 4. Enter writes the months. The bank file is never copied; only date, amount, a tidied
    counterparty name and the row key are kept. The account holder's name, ID number and
    address that ING prints on every page are skipped.
@@ -192,7 +202,11 @@ beside them from 100 columns up, and a Left pane under them below that. Income, 
 (`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and
-a replaced one its planned amount. The list scrolls around the cursor; the notes above
+a replaced one its planned amount; one booked in another month shows that month too
+(`30 Oct Salary`). `>` and `<` move the selected entry to the next or previous month. If a
+bank row lands on something planned there, a popup asks whether it replaces the plan or
+sits beside it; a bank row that had replaced a plan leaves that plan behind as it was.
+The list scrolls around the cursor; the notes above
 it and the totals stay in place.
 
 **Categorise** (`c` on an expense). Pick a category or type a new one. For an imported
@@ -228,7 +242,7 @@ internal/
   importer/   importer.go, ing.go, revolut.go; testdata holds invented statements in the
               real layouts
   ui/         app.go routing and framing; month.go; form.go; categorise.go; payees.go;
-              importer.go; history.go; keys.go (key table, key bar, ? menu); confirm.go;
+              importer.go; history.go; keys.go (key table, key bar, ? menu); confirm.go; move.go;
               frame.go (panes, key bar, popups); theme.go; layout.go
 ```
 

@@ -19,6 +19,7 @@ It takes no arguments and no flags. Everything happens on screen:
 | `r` | carry the entry into future months (`↻`) |
 | `c` | put an expense in a category, and optionally every expense from its payee |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
+| `>` / `<` | move the entry to the next / previous month |
 | `I` | import a bank statement |
 | `←` / `→`, `t` | previous / next month, back to this month |
 | `h` | history |
@@ -29,8 +30,10 @@ It takes no arguments and no flags. Everything happens on screen:
 account statement CSV, one per currency account), press `I`, pick the file. The
 preview shows what goes into which month and whether it matches the bank's balance;
 nothing is written until you confirm. Bank rows that look like something you
-planned, such as the mortgage, are offered to replace the planned entry. Importing
-the same file again adds nothing.
+planned, such as the mortgage, are offered to replace the planned entry. A salary
+paid early, on the 27th for the 1st, can be counted for next month with `n`, and
+the payee's late rows go there by themselves from then on. Importing the same file
+again adds nothing.
 
 **Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows,
 in every month and on every later import. Money moving between your own ING and
