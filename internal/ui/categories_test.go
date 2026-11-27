@@ -426,13 +426,18 @@ func TestLongMonthScrollsWithTheCursor(t *testing.T) {
 		if got := strings.Count(strings.TrimRight(screen, "\n"), "\n") + 1; got > h {
 			t.Fatalf("after %d moves the screen is %d lines tall, terminal has %d", moves, got, h)
 		}
-		mustContain(t, screen, "October 2026", "LEFT", "Keys: ?", counter(m.dash.cursor, len(m.dash.rows())))
+		// Salary is the only income row; the 80 shops are the expenses.
+		want := "1 of 1"
+		if m.dash.cursor > 0 {
+			want = counter(m.dash.cursor-1, 80)
+		}
+		mustContain(t, screen, "October 2026", "LEFT", "Keys: ?", want)
 		if _, e, ok := m.dash.currentEntry(); ok && !strings.Contains(screen, e.Label+" ") {
 			t.Fatalf("after %d moves the selected row is off screen:\n%s", moves, screen)
 		}
 		checkWidth(t, m)
 	}
-	mustContain(t, plain(m), "Shop 79", "81 of 81─")
+	mustContain(t, plain(m), "Shop 79", "80 of 80─")
 
 	// The form still fits under a scrolled list.
 	m = press(t, m, "e")

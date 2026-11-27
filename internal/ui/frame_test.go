@@ -128,3 +128,28 @@ func TestTabsShowEveryScreen(t *testing.T) {
 	next, _ := narrow.Update(tea.WindowSizeMsg{Width: 44, Height: 20})
 	mustContain(t, plain(next.(Model)), "[1] "+model.Today().Label()+" · 2 · 3 · 4")
 }
+
+// Income and expenses are panes of their own; the one holding the cursor is
+// focused, and tab moves between them.
+func TestIncomeAndExpensesAreSeparatePanes(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(model.Today())
+	mo.Add(model.Income, "Salary", money.FromLei(12500), true)
+	mo.Add(model.Expense, "Rent", money.FromLei(2800), true)
+	mo.Add(model.Expense, "Food", money.FromLei(900), false)
+	if err := s.Save(mo); err != nil {
+		t.Fatal(err)
+	}
+	m := app(t, s)
+	mustContain(t, plain(m), "╭─Expenses─", "1 of 1─╯")
+
+	m = press(t, m, "tab")
+	if r, _ := m.dash.current(); r.kind != model.Expense {
+		t.Fatalf("tab left the cursor in %v", r.kind)
+	}
+	mustContain(t, plain(m), "1 of 2─╯")
+	m = press(t, m, "tab")
+	if r, _ := m.dash.current(); r.kind != model.Income {
+		t.Errorf("tab did not go back to income")
+	}
+}

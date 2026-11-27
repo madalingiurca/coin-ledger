@@ -187,6 +187,8 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.cursor = 0
 	case "G", "end":
 		m.dash.cursor = len(m.dash.rows()) - 1
+	case "tab":
+		m.dash.jumpSection()
 
 	case "a":
 		if r, ok := m.dash.current(); ok {
@@ -325,86 +327,113 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 // monthTitle names the month pane: its jump key and the month.
 func (m Model) monthTitle() string { return "[1] " + m.dash.key.Label() }
 
-// monthList draws the month's entries for a pane h lines tall. When the list
-// is longer than that it scrolls around the cursor, keeping the notes above
-// it in place; where the cursor is shows as the counter in the pane's border.
-// An h of zero means no limit.
-func (m Model) monthList(cw, h int) (body, count string) {
+// monthError explains a month whose file cannot be read.
+func (m Model) monthError(cw int) string {
 	t := m.theme
-	var lines []string
+	return strings.Join([]string{
+		wrap(t.Danger, cw, m.dash.loadErr.Error()),
+		"",
+		wrap(t.Muted, cw, "Fix the file by hand, or move it aside. Nothing here overwrites it."),
+	}, "\n")
+}
 
-	if m.dash.loadErr != nil {
-		lines = append(lines,
-			wrap(t.Danger, cw, m.dash.loadErr.Error()),
-			"",
-			wrap(t.Muted, cw, "Fix the file by hand, or move it aside. Nothing here overwrites it."),
-		)
-		return strings.Join(lines, "\n"), ""
+// monthSection draws one section of the month, income or expenses, for a
+// pane h lines tall. When it is longer than that it scrolls around the
+// cursor. Income carries the month's notes above it, as the first pane.
+// count is the cursor's place in the section, empty when the cursor is in
+// the other one; lines is how tall the section is unscrolled. An h of zero
+// means no limit.
+func (m Model) monthSection(kind model.Kind, cw, h int) (body, count string, lines int) {
+	t := m.theme
+	var head []string
+	if kind == model.Income {
+		if note := m.monthNote(); note != "" {
+			head = append(head, t.Muted.Render(truncate(note, cw)))
+		}
+		if m.dash.warning != nil {
+			head = append(head, wrap(t.Warning, cw, m.dash.warning.Error()))
+		}
+		if len(head) > 0 {
+			head = append(head, "")
+		}
 	}
+	head = append(head, m.sectionHeader(kind, cw))
 
-	if note := m.monthNote(); note != "" {
-		lines = append(lines, t.Muted.Render(truncate(note, cw)))
-	}
-	if m.dash.warning != nil {
-		lines = append(lines, wrap(t.Warning, cw, m.dash.warning.Error()))
-	}
-	if len(lines) > 0 {
-		lines = append(lines, "")
-	}
-
-	var rowsOut []string
-	cursorLine := 0
+	var out []string
+	cursorLine, place, n := 0, -1, 0
 	totals := map[string]model.CategoryTotal{}
 	for _, c := range m.dash.month.Categories() {
 		totals[c.Name] = c
 	}
-	rows := m.dash.rows()
 	days := m.dayBuckets()
-	for _, kind := range []model.Kind{model.Income, model.Expense} {
-		if kind == model.Expense {
-			rowsOut = append(rowsOut, "")
+	lastDay, lastCat := "\x00", "\x00"
+	for i, r := range m.dash.rows() {
+		if r.kind != kind {
+			continue
 		}
-		rowsOut = append(rowsOut, m.sectionHeader(kind, cw))
-		lastDay, lastCat := "\x00", "\x00"
-		for i, r := range rows {
-			if r.kind != kind {
-				continue
-			}
-			selected := i == m.dash.cursor
-			if r.header {
-				lastDay, lastCat = "\x00", r.cat
-				if selected {
-					cursorLine = len(rowsOut)
-				}
-				rowsOut = append(rowsOut, m.categoryLine(totals[r.cat], selected, cw))
-				continue
-			}
-			bucketed := false
-			if kind == model.Expense && r.index >= 0 {
-				e := m.dash.month.Expenses[r.index]
-				if days.used[e.Category] {
-					bucketed = true
-					if r.cat != lastCat {
-						lastDay, lastCat = "\x00", r.cat
-					}
-					if e.Date != lastDay {
-						lastDay = e.Date
-						rowsOut = append(rowsOut, m.dayLine(e, days, cw))
-					}
-				}
-			}
+		selected := i == m.dash.cursor
+		if selected {
+			place = n
+		}
+		n++
+		if r.header {
+			lastDay, lastCat = "\x00", r.cat
 			if selected {
-				cursorLine = len(rowsOut)
+				cursorLine = len(out)
 			}
-			rowsOut = append(rowsOut, m.entryLine(r, selected, bucketed, cw))
+			out = append(out, m.categoryLine(totals[r.cat], selected, cw))
+			continue
 		}
+		bucketed := false
+		if kind == model.Expense && r.index >= 0 {
+			e := m.dash.month.Expenses[r.index]
+			if days.used[e.Category] {
+				bucketed = true
+				if r.cat != lastCat {
+					lastDay, lastCat = "\x00", r.cat
+				}
+				if e.Date != lastDay {
+					lastDay = e.Date
+					out = append(out, m.dayLine(e, days, cw))
+				}
+			}
+		}
+		if selected {
+			cursorLine = len(out)
+		}
+		out = append(out, m.entryLine(r, selected, bucketed, cw))
 	}
 
+	lines = lipgloss.Height(strings.Join(head, "\n")) + len(out)
 	if h > 0 {
-		rowsOut = scrollWindow(rowsOut, cursorLine, h-lipgloss.Height(strings.Join(lines, "\n")))
+		out = scrollWindow(out, cursorLine, h-lipgloss.Height(strings.Join(head, "\n")))
 	}
-	lines = append(lines, rowsOut...)
-	return strings.Join(lines, "\n"), counter(m.dash.cursor, len(rows))
+	if place >= 0 {
+		count = counter(place, n)
+	}
+	return strings.Join(append(head, out...), "\n"), count, lines
+}
+
+// cursorKind is the section the cursor is in.
+func (m Model) cursorKind() model.Kind {
+	if r, ok := m.dash.current(); ok {
+		return r.kind
+	}
+	return model.Income
+}
+
+// jumpSection moves the cursor to the first row of the other section.
+func (d *dash) jumpSection() {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	for i, other := range d.rows() {
+		if other.kind != r.kind {
+			d.cursor = i
+			return
+		}
+	}
 }
 
 // monthTotals is what the totals pane shows. full adds the income and

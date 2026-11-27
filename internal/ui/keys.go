@@ -93,7 +93,7 @@ func (m Model) screenBindings() (string, []binding) {
 	if m.dash.loadErr != nil {
 		return "month", months
 	}
-	edit := []binding{bind("e", "e enter", "edit the selected entry", "edit")}
+	edit := []binding{{key: "e", display: "e enter", action: "edit the selected entry", bar: "edit", barKey: "e"}}
 	if r, ok := m.dash.current(); ok && r.header {
 		edit = []binding{
 			bind("e", "e", "rename the category everywhere", "rename"),
@@ -109,6 +109,7 @@ func (m Model) screenBindings() (string, []binding) {
 		bind("u", "u", "payees that have no category yet", "payees"),
 		bind("i", "i", "add income", ""),
 		bind("x", "x", "add an expense", ""),
+		bind("tab", "tab", "switch between income and expenses", "income/expenses"),
 		binding{display: "↑ ↓ j k", action: "move the cursor"},
 		bind("g", "g G", "first / last row", ""),
 	)
@@ -296,6 +297,8 @@ func keyPress(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "space":
 		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "left":
 		return tea.KeyPressMsg{Code: tea.KeyLeft}
 	case "right":

@@ -185,8 +185,10 @@ bar's place until the next key. Dialogs (the form, categorise, rename, delete, t
 keybindings menu) open as a focused pane over the middle of the screen, with their keys in
 their bottom border, and the screen behind keeps its place.
 
-**Month** (home). The list fills the height of the terminal, with a Totals pane beside it
-from 100 columns up and a Left pane under it below that. Income, then expenses under collapsible category headers
+**Month** (home). Income and expenses are two panes, one over the other: income sized to
+what it holds (at most a third of the height), expenses taking the rest. The pane holding
+the cursor is the focused one, and `tab` moves the cursor to the other. A Totals pane sits
+beside them from 100 columns up, and a Left pane under them below that. Income, then expenses under collapsible category headers
 (`▾ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and

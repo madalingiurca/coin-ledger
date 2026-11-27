@@ -236,29 +236,46 @@ const (
 	sideFrom = 100
 )
 
-// monthScreen lays out the month: the list as the focused pane, and the
-// totals beside it on a wide terminal and under it on a narrow one.
+// monthScreen lays out the month: an income pane over an expenses pane, the
+// one holding the cursor focused, and the totals beside them on a wide
+// terminal and under them on a narrow one.
 func (m Model) monthScreen(cw, h int) string {
 	t := m.theme
 	if m.dash.month == nil {
-		body, _ := m.monthList(cw, 0)
-		return pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), body: body, w: cw + paneChrome, h: h, focused: true}.render(t)
+		return pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), body: m.monthError(cw),
+			w: cw + paneChrome, h: h, focused: true}.render(t)
 	}
 	if m.width >= sideFrom {
 		sideW := min(sideMax, max(sideMin, m.width-cw-paneChrome))
 		listW := min(cw+paneChrome, m.width-sideW)
-		body, count := m.monthList(listW-paneChrome, h-2)
-		list := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: count, body: body,
-			w: listW, h: h, focused: !m.dialogOpen()}.render(t)
 		totals := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
-		return lipgloss.JoinHorizontal(lipgloss.Top, list, totals)
+		return lipgloss.JoinHorizontal(lipgloss.Top, m.monthSections(listW-paneChrome, h), totals)
 	}
 	totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
-	listH := max(3, h-lipgloss.Height(totals))
-	body, count := m.monthList(cw, listH-2)
-	list := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: count, body: body,
-		w: cw + paneChrome, h: listH, focused: !m.dialogOpen()}.render(t)
-	return list + "\n" + totals
+	return m.monthSections(cw, max(6, h-lipgloss.Height(totals))) + "\n" + totals
+}
+
+// incomeShare caps the income pane at this fraction of the height: income is
+// a line or two, expenses are most of the month.
+const incomeShare = 3
+
+// monthSections stacks the income pane, sized to what it holds, over the
+// expenses pane, which takes the rest of h.
+func (m Model) monthSections(cw, h int) string {
+	t := m.theme
+	focus := m.cursorKind()
+	_, _, natural := m.monthSection(model.Income, cw, 0)
+	incomeH := min(natural+2, max(4, h/incomeShare))
+	expenseH := max(3, h-incomeH)
+
+	inBody, inCount, _ := m.monthSection(model.Income, cw, incomeH-2)
+	exBody, exCount, _ := m.monthSection(model.Expense, cw, expenseH-2)
+	active := !m.dialogOpen()
+	income := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: inCount, body: inBody,
+		w: cw + paneChrome, h: incomeH, focused: active && focus == model.Income}.render(t)
+	expenses := pane{title: "Expenses", counter: exCount, body: exBody,
+		w: cw + paneChrome, h: expenseH, focused: active && focus == model.Expense}.render(t)
+	return income + "\n" + expenses
 }
 
 // dialogOpen reports whether a dialog has the keyboard.
