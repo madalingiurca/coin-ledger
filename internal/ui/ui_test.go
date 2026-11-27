@@ -413,7 +413,10 @@ func TestHistoryWithNothingSaved(t *testing.T) {
 
 func TestKeybindingsMenu(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "?")
+	// Tall enough for the notes under the bindings, which only show when
+	// they cost no binding its row.
+	next, _ := m.Update(tea.WindowSizeMsg{Width: testW, Height: 46})
+	m = press(t, next.(Model), "?")
 	screen := plain(m)
 	mustContain(t, screen, "Keybindings: month", "add to the section the cursor is in",
 		"previous month", "Global", "Months are saved in", "enter run · esc close")

@@ -107,6 +107,7 @@ func (m Model) screenBindings() (string, []binding) {
 	list = append(list,
 		bind("d", "d", "delete the selected entry", "delete"),
 		bind("r", "r", "carry the entry into future months", "recurring"),
+		bind("b", "b", "link a refund to the expenses it pays back", "paid back"),
 		bind("c", "c", "put the selected expense, or the marked ones, in a category", "categorise"),
 		bind("space", "space", "mark expenses to categorise together; esc clears", ""),
 		bind("u", "u", "payees that have no category yet", "payees"),

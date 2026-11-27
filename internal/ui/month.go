@@ -307,7 +307,9 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "b":
 		if r, ok := m.dash.current(); ok && r.header {
 			m.togglePaidBack(r.cat)
+			return m, nil
 		}
+		m.startLink()
 	case "u":
 		m.openPayees()
 	case ">":

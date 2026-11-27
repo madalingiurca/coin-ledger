@@ -20,6 +20,12 @@ func (m Model) confirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "Y", "enter":
 		m.confirm = nil
+		if e, ok := m.dash.month.Find(c.kind, c.id); ok && e.IsLinked() {
+			if err := m.unlinkAll(c.kind, e); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+		}
 		if err := m.dash.month.Remove(c.kind, c.id); err != nil {
 			m.setError(err)
 			return m, nil
@@ -36,5 +42,9 @@ func (m Model) confirmKey(key string) (tea.Model, tea.Cmd) {
 
 func (m Model) confirmPrompt(cw int) string {
 	c := m.confirm
-	return wrap(m.theme.Danger, cw, "Delete "+c.label+" ("+c.amount.Lei()+")?")
+	q := wrap(m.theme.Danger, cw, "Delete "+c.label+" ("+c.amount.Lei()+")?")
+	if e, ok := m.dash.month.Find(c.kind, c.id); ok && e.IsLinked() {
+		q += "\n\n" + wrap(m.theme.Muted, cw, "Its reimbursement links go too, and what they paid back counts again.")
+	}
+	return q
 }
