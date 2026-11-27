@@ -227,10 +227,10 @@ func (m *Model) save() bool {
 
 func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "left", "[", "p":
+	case "[", "p":
 		m.openMonth(m.dash.key.Prev())
 		return m, nil
-	case "right", "]", "n":
+	case "]", "n":
 		m.openMonth(m.dash.key.Next())
 		return m, nil
 	case "t":
@@ -259,6 +259,10 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.cursor = len(m.dash.rows()) - 1
 	case "tab":
 		m.dash.jumpSection()
+	case "right":
+		m.dash.unfold()
+	case "left":
+		m.dash.fold()
 
 	case "a":
 		if r, ok := m.dash.current(); ok {
@@ -585,6 +589,38 @@ func (m Model) cursorSection() int {
 		return r.section()
 	}
 	return secIncome
+}
+
+// unfold opens the category on the cursor's header. On a header already
+// open it steps onto the category's first entry, the way a file tree does.
+func (d *dash) unfold() {
+	r, ok := d.current()
+	if !ok || !r.header {
+		return
+	}
+	if !d.expanded[r.cat] {
+		d.expanded[r.cat] = true
+		return
+	}
+	if rows := d.rows(); d.cursor+1 < len(rows) && !rows[d.cursor+1].header && rows[d.cursor+1].cat == r.cat {
+		d.cursor++
+	}
+}
+
+// fold closes the category the cursor is in, from its header or from any of
+// its entries, and leaves the cursor on the header.
+func (d *dash) fold() {
+	r, ok := d.current()
+	if !ok || r.cat == "" || r.todo {
+		return
+	}
+	delete(d.expanded, r.cat)
+	for i, row := range d.rows() {
+		if row.header && row.cat == r.cat {
+			d.cursor = i
+			return
+		}
+	}
 }
 
 // jumpSection moves the cursor to the first row of the next pane, round to

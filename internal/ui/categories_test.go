@@ -127,7 +127,7 @@ func TestFoldingACategory(t *testing.T) {
 	}
 
 	// Unfolding survives a trip to another month and back.
-	m = press(t, m, "right", "left")
+	m = press(t, m, "]", "p")
 	if !strings.Contains(plain(m), "Lidl") {
 		t.Error("the category folded again while paging months")
 	}
@@ -744,5 +744,50 @@ func TestToCategorisePane(t *testing.T) {
 		if want := []int{secIncome, secTodo, secExpense, secIncome}; fmt.Sprint(sections) != fmt.Sprint(want) {
 			t.Errorf("width %d: tab visits %v, want %v", w, sections, want)
 		}
+	}
+}
+
+// The arrows open and close categories like a file tree, and no longer page
+// months: ] and [ do that.
+func TestArrowsFoldCategories(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	mo.AddImported(model.Expense, bank("k2", "Mega", 90, "Groceries"))
+	mo.AddImported(model.Expense, bank("k3", "Bolt", 25, "Transport"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down") // the Groceries header
+	m = press(t, m, "right")
+	if m.dash.key != october {
+		t.Fatalf("→ paged to %v", m.dash.key)
+	}
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Fatalf("→ did not unfold Groceries:\n%s", plain(m))
+	}
+	if r, _ := m.dash.current(); !r.header {
+		t.Error("unfolding moved the cursor off the header")
+	}
+
+	// → again steps into the open category.
+	m = press(t, m, "right")
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Category != "Groceries" {
+		t.Fatalf("→ on an open header did not step onto its first entry")
+	}
+
+	// ← from an entry folds its category and lands on the header.
+	m = press(t, m, "down", "left")
+	if r, _ := m.dash.current(); !r.header || r.cat != "Groceries" {
+		t.Errorf("← left the cursor on %+v, want the Groceries header", r)
+	}
+	if strings.Contains(plain(m), "Lidl") {
+		t.Errorf("← did not fold Groceries:\n%s", plain(m))
+	}
+
+	// ← on a folded header and on income does nothing, months included.
+	m = press(t, m, "left", "up", "left")
+	if m.dash.key != october {
+		t.Errorf("← paged to %v", m.dash.key)
 	}
 }

@@ -330,7 +330,7 @@ func TestNextMonthCarriesRecurringEntries(t *testing.T) {
 	}
 
 	m := app(t, s)
-	m = press(t, m, "right")
+	m = press(t, m, "]")
 
 	screen := plain(m)
 	mustContain(t, screen, this.Next().Label(), "Salary", "Rent",
@@ -350,13 +350,13 @@ func TestNextMonthCarriesRecurringEntries(t *testing.T) {
 	}
 
 	// And going back finds the original month untouched.
-	m = press(t, m, "left")
+	m = press(t, m, "[")
 	mustContain(t, plain(m), this.Label(), "Freelance")
 }
 
 func TestTodayJumpsBack(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "right", "right", "right")
+	m = press(t, m, "]", "n", "]")
 	if m.dash.key != model.Today().Shift(3) {
 		t.Fatalf("landed on %v", m.dash.key)
 	}
@@ -513,7 +513,7 @@ func TestDamagedMonthIsShownNotOverwritten(t *testing.T) {
 	}
 
 	// Navigating away still works.
-	m = press(t, m, "right")
+	m = press(t, m, "]")
 	if m.dash.loadErr != nil {
 		t.Error("could not navigate off a damaged month")
 	}
