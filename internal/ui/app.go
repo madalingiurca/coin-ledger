@@ -272,13 +272,25 @@ func (m Model) monthScreen(cw, h int) string {
 }
 
 // sideColumn is the column beside the month list: the To categorise pane,
-// when it is there, over the totals.
+// when it is there, over the totals. The To categorise pane is only as tall
+// as what it lists, and the totals take the rest of the column, filling it
+// with where the money went rather than leaving it blank.
 func (m Model) sideColumn(w, h int, withTodo bool) string {
-	side := pane{title: "Totals", body: m.monthTotals(w-paneChrome, true), w: w}.render(m.theme)
+	t := m.theme
+	cw := w - paneChrome
+	totals := m.monthTotals(cw, true)
+	totalsH := lipgloss.Height(totals) + 2
+	todo, todoH := "", 0
 	if withTodo {
-		side = m.todoPane(w-paneChrome, max(4, h-lipgloss.Height(side))) + "\n" + side
+		_, _, natural := m.monthSection(secTodo, cw, 0)
+		todoH = max(4, min(natural+2, h-totalsH))
+		todo = m.todoPane(cw, todoH) + "\n"
 	}
-	return side
+	sideH := max(totalsH, h-todoH)
+	if b := m.categoryBreakdown(cw, sideH-totalsH-1); b != "" {
+		totals += "\n\n" + b
+	}
+	return todo + pane{title: "Totals", body: totals, w: w, h: sideH}.render(t)
 }
 
 // incomeShare caps the income pane at this fraction of the height: income is
