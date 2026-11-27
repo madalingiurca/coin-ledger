@@ -139,6 +139,24 @@ func (m Model) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.monthKey(key)
 }
 
+// tabs names every screen in the main pane's border, so the number keys can
+// be seen: the screen on show by its full title, the others by number and
+// name.
+func (m Model) tabs(current string) []tab {
+	names := []struct {
+		s     screen
+		label string
+	}{{screenMonth, "1 Month"}, {screenHistory, "2 History"}, {screenPayees, "3 Payees"}, {screenImport, "4 Import"}}
+	out := make([]tab, len(names))
+	for i, n := range names {
+		out[i] = tab{label: n.label}
+		if n.s == m.screen {
+			out[i] = tab{label: current, active: true}
+		}
+	}
+	return out
+}
+
 // jump goes to the screen whose pane carries that number. Going to the screen
 // already open does nothing, so a half-done import is not thrown away.
 func (m Model) jump(key string) (tea.Model, tea.Cmd) {
@@ -180,13 +198,13 @@ func (m Model) render() string {
 	hints := m.barHints()
 	switch {
 	case m.screen == screenHistory:
-		block = pane{title: "[2] History", counter: counter(m.hist.cursor, len(m.hist.rows)),
+		block = pane{title: "[2] History", tabs: m.tabs("[2] History"), counter: counter(m.hist.cursor, len(m.hist.rows)),
 			body: m.historyView(cw), w: mainW, h: h, focused: true}.render(t)
 	case m.screen == screenImport:
-		block = pane{title: m.importTitle(), counter: m.importCounter(),
+		block = pane{title: m.importTitle(), tabs: m.tabs(m.importTitle()), counter: m.importCounter(),
 			body: m.importView(cw, h-2), w: mainW, h: h, focused: true}.render(t)
 	case m.screen == screenPayees:
-		block = pane{title: m.payeesTitle(), counter: m.payeesCounter(),
+		block = pane{title: m.payeesTitle(), tabs: m.tabs(m.payeesTitle()), counter: m.payeesCounter(),
 			body: m.payeesView(cw, h-2), w: mainW, h: h, focused: !m.dialogOpen()}.render(t)
 	default:
 		block = m.monthScreen(cw, h)
@@ -224,13 +242,13 @@ func (m Model) monthScreen(cw, h int) string {
 	t := m.theme
 	if m.dash.month == nil {
 		body, _ := m.monthList(cw, 0)
-		return pane{title: m.monthTitle(), body: body, w: cw + paneChrome, h: h, focused: true}.render(t)
+		return pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), body: body, w: cw + paneChrome, h: h, focused: true}.render(t)
 	}
 	if m.width >= sideFrom {
 		sideW := min(sideMax, max(sideMin, m.width-cw-paneChrome))
 		listW := min(cw+paneChrome, m.width-sideW)
 		body, count := m.monthList(listW-paneChrome, h-2)
-		list := pane{title: m.monthTitle(), counter: count, body: body,
+		list := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: count, body: body,
 			w: listW, h: h, focused: !m.dialogOpen()}.render(t)
 		totals := pane{title: "Totals", body: m.monthTotals(sideW-paneChrome, true), w: sideW}.render(t)
 		return lipgloss.JoinHorizontal(lipgloss.Top, list, totals)
@@ -238,7 +256,7 @@ func (m Model) monthScreen(cw, h int) string {
 	totals := pane{title: "Left", body: m.monthTotals(cw, false), w: cw + paneChrome}.render(t)
 	listH := max(3, h-lipgloss.Height(totals))
 	body, count := m.monthList(cw, listH-2)
-	list := pane{title: m.monthTitle(), counter: count, body: body,
+	list := pane{title: m.monthTitle(), tabs: m.tabs(m.monthTitle()), counter: count, body: body,
 		w: cw + paneChrome, h: listH, focused: !m.dialogOpen()}.render(t)
 	return list + "\n" + totals
 }

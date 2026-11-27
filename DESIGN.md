@@ -174,9 +174,10 @@ Format notes, from the October 2026 exports:
 ## Screens
 
 Every screen is a set of bordered panes, after lazygit. A pane's title sits in its top
-border and, for a list, where the cursor is (`9 of 24`) in the bottom one. The screens
-are numbered in their titles and the numbers jump to them: `[1]` month, `[2]` history,
-`[3]` uncategorised payees, `[4]` import. The focused pane's border and title are Rosso
+border and, for a list, where the cursor is (`9 of 24`) in the bottom one. The main pane's
+top border names every screen as a tab, the one on show in full
+(`[1] October 2026 · 2 History · 3 Payees · 4 Import`), and the numbers jump to them. On a
+narrow terminal the other tabs shrink to their numbers. The focused pane's border and title are Rosso
 Corsa 322 (`#D40000`); the rest are in the line colour. The selected row is a background
 bar. The last line of the terminal is the key bar, one line of `Action: key` hints; hints
 that do not fit are left out, and `Keys: ?` always stays. A status message takes the key

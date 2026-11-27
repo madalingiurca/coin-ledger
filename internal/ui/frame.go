@@ -23,6 +23,15 @@ type pane struct {
 	// w and h are the outer size. h of zero fits the body.
 	w, h    int
 	focused bool
+	// tabs, when set, replace the title: every screen's name in the top
+	// border, the one on screen drawn as the title.
+	tabs []tab
+}
+
+// tab is one screen's name in a pane's top border.
+type tab struct {
+	label  string
+	active bool
 }
 
 // render draws the pane. Body lines wider than the pane are cut rather than
@@ -52,7 +61,11 @@ func (p pane) render(t Theme) string {
 	}
 
 	var out strings.Builder
-	out.WriteString(borderLine(t, border, title, "╭", "╮", p.title, w))
+	if top, ok := tabLine(t, border, title, p.tabs, w); ok {
+		out.WriteString(top)
+	} else {
+		out.WriteString(borderLine(t, border, title, "╭", "╮", p.title, w))
+	}
 	out.WriteByte('\n')
 	side := border.Render("│")
 	for _, l := range lines {
@@ -82,6 +95,39 @@ func borderLine(t Theme, border, text lipgloss.Style, left, right, label string,
 		return border.Render(left+"─") + text.Render(label) + border.Render(fill+right)
 	}
 	return border.Render(left+fill) + text.Render(label) + border.Render("─"+right)
+}
+
+// tabLine draws a top edge carrying every tab, lazygit style:
+// "╭─[1] October 2026 · 2 History · 3 Payees · 4 Import──╮". When the names do
+// not fit, the other tabs shrink to their numbers; when even those do not, it
+// reports false and the pane shows only the title.
+func tabLine(t Theme, border, title lipgloss.Style, tabs []tab, w int) (string, bool) {
+	if len(tabs) == 0 {
+		return "", false
+	}
+	for _, short := range []bool{false, true} {
+		used := 3 // "╭─" and "╮"
+		var b strings.Builder
+		b.WriteString(border.Render("╭─"))
+		for i, tb := range tabs {
+			if i > 0 {
+				b.WriteString(t.TitleInactive.Render(" · "))
+				used += 3
+			}
+			label, style := tb.label, t.TitleInactive
+			if tb.active {
+				style = title
+			} else if short {
+				label, _, _ = strings.Cut(label, " ")
+			}
+			b.WriteString(style.Render(label))
+			used += lipgloss.Width(label)
+		}
+		if fill := w - used; fill >= 1 {
+			return b.String() + border.Render(strings.Repeat("─", fill)+"╮"), true
+		}
+	}
+	return "", false
 }
 
 // keybar lays hints out on one line, lazygit style: "Add: a | Edit: e". When

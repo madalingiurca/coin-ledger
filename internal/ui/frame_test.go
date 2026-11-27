@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/madalingiurca/budget/internal/model"
@@ -115,4 +116,15 @@ func TestDialogsOpenOverTheScreen(t *testing.T) {
 	}
 	mustContain(t, plain(press(t, m, "a")), "Add income", "esc cancel─╯")
 	mustContain(t, plain(press(t, m, "d")), "Delete Salary", "y delete · n keep─╯")
+}
+
+// Every screen is named in the main pane's border, so the number keys show.
+func TestTabsShowEveryScreen(t *testing.T) {
+	m := app(t, testStore(t))
+	mustContain(t, plain(m), "[1] "+model.Today().Label()+" · 2 History · 3 Payees · 4 Import")
+	mustContain(t, plain(press(t, m, "2")), "1 Month · [2] History · 3 Payees · 4 Import")
+
+	narrow := New(m.store)
+	next, _ := narrow.Update(tea.WindowSizeMsg{Width: 44, Height: 20})
+	mustContain(t, plain(next.(Model)), "[1] "+model.Today().Label()+" · 2 · 3 · 4")
 }
