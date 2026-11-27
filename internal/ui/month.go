@@ -329,6 +329,52 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 	m.dash.clamp()
 }
 
+// spot remembers where the cursor is within its list, so that it can stay
+// there when the entries under it are filed elsewhere.
+type spot struct {
+	kind model.Kind
+	cat  string
+	// ids are the entries to try in order: the one under the cursor, then
+	// those after it in the same list, then those before it.
+	ids []string
+	at  int
+}
+
+func (d dash) spot() spot {
+	rows := d.rows()
+	if d.cursor < 0 || d.cursor >= len(rows) {
+		return spot{at: d.cursor}
+	}
+	cur := rows[d.cursor]
+	s := spot{kind: cur.kind, cat: cur.cat, at: d.cursor}
+	add := func(i int) {
+		r := rows[i]
+		if !r.header && r.index >= 0 && r.kind == cur.kind && r.cat == cur.cat {
+			s.ids = append(s.ids, d.month.Entries(r.kind)[r.index].ID)
+		}
+	}
+	for i := d.cursor; i < len(rows); i++ {
+		add(i)
+	}
+	for i := d.cursor - 1; i >= 0; i-- {
+		add(i)
+	}
+	return s
+}
+
+// returnTo puts the cursor back on the spot: on the first of its entries
+// still in the list it was in, or failing that on the row it was on.
+func (m *Model) returnTo(s spot) {
+	for _, id := range s.ids {
+		if e, ok := m.dash.month.Find(s.kind, id); ok && e.Category == s.cat {
+			m.selectEntry(s.kind, id)
+			return
+		}
+	}
+	m.dash.cursor = s.at
+	m.dash.clamp()
+}
+
 // monthTitle names the month pane: its jump key and the month.
 func (m Model) monthTitle() string { return "[1] " + m.dash.key.Label() }
 

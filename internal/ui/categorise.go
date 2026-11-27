@@ -239,6 +239,7 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 	if label == "" {
 		label = match
 	}
+	var here spot
 	switch {
 	case entryID != "" && elsewhere != nil:
 		if err := m.store.SetCategory(*elsewhere, entryID, category); err != nil {
@@ -256,6 +257,9 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 		if !ok {
 			return
 		}
+		// Stay in the list being worked through rather than following the
+		// entry to its new category.
+		here = m.dash.spot()
 		label = e.Label
 		if err := m.dash.month.SetCategory(entryID, category); err != nil {
 			m.setError(err)
@@ -264,7 +268,7 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 		if !m.save() {
 			return
 		}
-		m.selectEntry(model.Expense, entryID)
+		m.returnTo(here)
 	}
 	if match == "" {
 		m.setStatus("%s → %s", label, shown)
@@ -293,8 +297,8 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 	key := m.dash.key
 	if m.dash.onDisk {
 		m.openMonth(key)
-		if entryID != "" {
-			m.selectEntry(model.Expense, entryID)
+		if entryID != "" && elsewhere == nil {
+			m.returnTo(here)
 		}
 	}
 	if m.screen == screenPayees {

@@ -241,8 +241,10 @@ func TestCategorisingAPayeeFilesItEverywhere(t *testing.T) {
 	if strings.Join(got, "|") != "Transport|Transport|" {
 		t.Errorf("October categories = %q", got)
 	}
-	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k1" {
-		t.Errorf("the cursor left the entry: %+v", e)
+	// Both Bolt rides are filed, so the cursor moves on to Lidl, the next
+	// expense still waiting for a category.
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k3" {
+		t.Errorf("the cursor is not on the next uncategorised entry: %+v", e)
 	}
 	mustContain(t, plain(m), "Bolt → Transport", "2 more entries filed")
 
@@ -278,6 +280,51 @@ func TestCategoriseOnlyThisEntry(t *testing.T) {
 	rules, _ := s.LoadRules()
 	if _, ok := rules.CategoryFor("BOLT"); ok {
 		t.Error("a rule was saved although it was switched off")
+	}
+}
+
+// Working down the uncategorised list, the cursor stays in it after each
+// entry is filed instead of following the entry to its new category.
+func TestCategorisingStaysInTheList(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Bolt", 25, ""))
+	mo.AddImported(model.Expense, bank("k2", "Omv", 300, ""))
+	mo.AddImported(model.Expense, bank("k3", "Ikea", 90, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "enter", "down") // unfold Uncategorised, onto Bolt
+	onKey := func(want string) {
+		t.Helper()
+		if _, e, ok := m.dash.currentEntry(); !ok || e.Key != want {
+			t.Fatalf("cursor on %+v, want %s:\n%s", e, want, plain(m))
+		}
+	}
+	file := func(category string) {
+		t.Helper()
+		m = press(t, m, "c")
+		m = press(t, m, typing(category)...)
+		m = press(t, m, "enter")
+	}
+	onKey("k1")
+	file("Transport")
+	onKey("k2") // the next one, not Bolt under Transport
+	if m.dash.expanded["Transport"] {
+		t.Error("filing unfolded the category the entry went to")
+	}
+
+	m = press(t, m, "down") // the last one: the cursor falls back to the one before
+	file("Home")
+	onKey("k2")
+	file("Car")
+	// Nothing is left to file: the cursor stays on the row it was on.
+	if r, ok := m.dash.current(); !ok || r.index < 0 && !r.header {
+		t.Errorf("cursor on %+v after the list emptied", r)
+	}
+	if strings.Contains(plain(m), "Uncategorised") {
+		t.Errorf("Uncategorised is still listed:\n%s", plain(m))
 	}
 }
 
