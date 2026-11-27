@@ -227,7 +227,8 @@ sits on that leader in one column. Section and day headings keep plain space. In
 are not a category there but a To categorise pane of their own, laid out by day and always
 open: beside the month above the Totals, only as tall as what it lists, when the terminal
 has 44 columns to spare for it and 70 for the month, otherwise between income and expenses. `tab` visits income, To categorise and expenses in
-turn, `shift+tab` the other way round. Categories start folded, header and total only; `enter` or `space` on a header unfolds it (`▾`), and it stays unfolded while paging months. The arrows work as in a file tree: `→` unfolds the header under the cursor and, on one already open, steps onto its first entry; `←` folds the category from its header or any of its entries and leaves the cursor on the header. Months page with `[` `]` (or `p` `n`), not the arrows, so opening a category never changes month by accident. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
+turn, `shift+tab` the other way round, and each pane takes the cursor back to the row it
+left there while that row is still in the pane, or else to its top; the memory belongs to the month. Categories start folded, header and total only; `enter` or `space` on a header unfolds it (`▾`), and it stays unfolded while paging months. The arrows (and `l` `h`, as in lazygit) work as in a file tree: `→` unfolds the header under the cursor and, on one already open, steps onto its first entry; `←` folds the category from its header or any of its entries and leaves the cursor on the header. `=` (or `+`) unfolds every category and `-` folds them all. Months page with `[` `]` (or `p` `n`), not the arrows, so opening a category never changes month by accident. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and
 a replaced one its planned amount; one booked in another month shows that month too
@@ -261,7 +262,7 @@ the two. Transfers is built in and cannot be renamed.
 with count and total. `enter` gives the payee a category for good. `→` opens it to file its
 transactions one by one, for shops where one visit is fuel and the next is coffee.
 
-**Import** (`I`), described above. **History** (`h`): the last 24 months with projected
+**Import** (`I`), described above. **History** (`H`, or `2`): the last 24 months with projected
 leftover bars. **Form** (`a`, `i`, `x`, `e`): label, amount, category for expenses (`→`
 completes a known one), recurring. **Keybindings** (`?`): every key the screen answers
 to, then the global ones. Typing filters the list and `enter` runs the chosen binding by

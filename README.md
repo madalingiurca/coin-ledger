@@ -15,19 +15,20 @@ It takes no arguments and no flags. Everything happens on screen:
 |---|---|
 | `a` / `i` / `x` | add (to the section under the cursor / income / expense) |
 | `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` unfolds or folds it (categories start folded) |
-| `→` / `←` | unfold a category (again to step into it) / fold the category the cursor is in |
+| `→` / `←` (or `l` / `h`) | unfold a category (again to step into it) / fold the category the cursor is in |
+| `=` / `-` | unfold / fold every category |
 | `d` | delete |
 | `r` | carry the entry into future months (`↻`) |
 | `c` | put an expense in a category, and optionally every expense from its payee; the cursor stays in the list you are working through |
 | `b` | link a refund to the expenses it pays back (or an expense to its refunds); on a category header, expect its expenses to be paid back |
 | `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
-| `tab` / `shift+tab` | next / previous pane: income, To categorise, expenses |
+| `tab` / `shift+tab` | next / previous pane: income, To categorise, expenses; each pane keeps the row you left it on |
 | `s` / `S` | next / previous statistics beside the month: by category, by label, largest expenses, by week, income sources, against last month |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
 | `>` / `<` | move the entry to the next / previous month |
 | `I` | import a bank statement |
 | `[` / `]` (or `p` / `n`), `t` | previous / next month, back to this month |
-| `h` | history |
+| `H` | history |
 | `1`–`4` | jump to month, history, uncategorised payees, import |
 | `?` | every key, filterable; `enter` runs one |
 
