@@ -324,7 +324,7 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 
 func (m Model) monthHints() []hint {
 	if m.dash.loadErr != nil {
-		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit")}
+		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit"), keyHint("?", "keys")}
 	}
 	edit := "edit"
 	if r, ok := m.dash.current(); ok && r.header {
@@ -336,33 +336,33 @@ func (m Model) monthHints() []hint {
 		keyHint("d", "delete"),
 		keyHint("r", "recurring"),
 		keyHint("c", "categorise"),
-		keyHint("u", "uncategorised"),
+		keyHint("u", "payees"),
 		keyHint("I", "import"),
 		keyHint("←/→", "month"),
 		keyHint("h", "history"),
-		keyHint("?", "help"),
 		keyHint("q", "quit"),
+		keyHint("?", "keys"),
 	}
 }
 
-// monthView draws the month. maxH is how many lines it may use; when the list
-// is longer than that it scrolls around the cursor, keeping the title above
-// and the totals below in place. A maxH of zero means no limit.
-func (m Model) monthView(cw, maxH int) string {
+// monthTitle names the month pane: its jump key and the month.
+func (m Model) monthTitle() string { return "[1] " + m.dash.key.Label() }
+
+// monthList draws the month's entries for a pane h lines tall. When the list
+// is longer than that it scrolls around the cursor, keeping the notes above
+// it in place; where the cursor is shows as the counter in the pane's border.
+// An h of zero means no limit.
+func (m Model) monthList(cw, h int) (body, count string) {
 	t := m.theme
 	var lines []string
 
-	name, when := spread("budget", m.dash.key.Label(), cw)
-	lines = append(lines, t.Title.Render(name)+t.Month.Render(when))
-
 	if m.dash.loadErr != nil {
 		lines = append(lines,
-			"",
 			wrap(t.Danger, cw, m.dash.loadErr.Error()),
 			"",
 			wrap(t.Muted, cw, "Fix the file by hand, or move it aside. Nothing here overwrites it."),
 		)
-		return strings.Join(lines, "\n")
+		return strings.Join(lines, "\n"), ""
 	}
 
 	if note := m.monthNote(); note != "" {
@@ -371,8 +371,11 @@ func (m Model) monthView(cw, maxH int) string {
 	if m.dash.warning != nil {
 		lines = append(lines, wrap(t.Warning, cw, m.dash.warning.Error()))
 	}
+	if len(lines) > 0 {
+		lines = append(lines, "")
+	}
 
-	var body []string
+	var rowsOut []string
 	cursorLine := 0
 	totals := map[string]model.CategoryTotal{}
 	for _, c := range m.dash.month.Categories() {
@@ -381,7 +384,10 @@ func (m Model) monthView(cw, maxH int) string {
 	rows := m.dash.rows()
 	days := m.dayBuckets()
 	for _, kind := range []model.Kind{model.Income, model.Expense} {
-		body = append(body, "", m.sectionHeader(kind, cw))
+		if kind == model.Expense {
+			rowsOut = append(rowsOut, "")
+		}
+		rowsOut = append(rowsOut, m.sectionHeader(kind, cw))
 		lastDay, lastCat := "\x00", "\x00"
 		for i, r := range rows {
 			if r.kind != kind {
@@ -391,9 +397,9 @@ func (m Model) monthView(cw, maxH int) string {
 			if r.header {
 				lastDay, lastCat = "\x00", r.cat
 				if selected {
-					cursorLine = len(body)
+					cursorLine = len(rowsOut)
 				}
-				body = append(body, m.categoryLine(totals[r.cat], selected, cw))
+				rowsOut = append(rowsOut, m.categoryLine(totals[r.cat], selected, cw))
 				continue
 			}
 			bucketed := false
@@ -406,55 +412,63 @@ func (m Model) monthView(cw, maxH int) string {
 					}
 					if e.Date != lastDay {
 						lastDay = e.Date
-						body = append(body, m.dayLine(e, days, cw))
+						rowsOut = append(rowsOut, m.dayLine(e, days, cw))
 					}
 				}
 			}
 			if selected {
-				cursorLine = len(body)
+				cursorLine = len(rowsOut)
 			}
-			body = append(body, m.entryLine(r, selected, bucketed, cw))
+			rowsOut = append(rowsOut, m.entryLine(r, selected, bucketed, cw))
 		}
 	}
 
-	tail := []string{"", t.Rule.Render(rule(cw))}
-	if m.dash.month.HasActuals() {
-		tail = append(tail, m.spentLine(cw))
+	if h > 0 {
+		rowsOut = scrollWindow(rowsOut, cursorLine, h-lipgloss.Height(strings.Join(lines, "\n")))
 	}
-	tail = append(tail, m.leftLine(cw))
-	if b := m.leftBar(cw); b != "" {
-		tail = append(tail, b)
-	}
+	lines = append(lines, rowsOut...)
+	return strings.Join(lines, "\n"), counter(m.dash.cursor, len(rows))
+}
 
-	if maxH > 0 {
-		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, cursorLine, maxH-fixed, cw)
+// monthTotals is what the totals pane shows. full adds the income and
+// expense totals, for a pane beside the list where they are not crowded.
+func (m Model) monthTotals(cw int, full bool) string {
+	t := m.theme
+	var lines []string
+	if full {
+		for _, kind := range []model.Kind{model.Income, model.Expense} {
+			name := "Income"
+			if kind == model.Expense {
+				name = "Expenses"
+			}
+			amount := m.dash.month.Total(kind).String()
+			lines = append(lines, t.Label.Render(padRight(name, cw-lipgloss.Width(amount)))+t.Amount.Render(amount))
+		}
 	}
-	lines = append(lines, body...)
-	lines = append(lines, tail...)
+	if m.dash.month.HasActuals() {
+		lines = append(lines, m.spentLine(cw))
+	}
+	if full {
+		lines = append(lines, t.Rule.Render(rule(cw)))
+	}
+	lines = append(lines, m.leftLine(cw))
+	if b := m.leftBar(cw); b != "" {
+		lines = append(lines, b)
+	}
 	return strings.Join(lines, "\n")
 }
 
 // minScroll is the shortest list worth scrolling. On a terminal too short to
-// show even that, the month is drawn whole and the terminal clips it.
-const minScroll = 6
+// show even that, the list is drawn whole and the pane cuts it.
+const minScroll = 3
 
-// scrollWindow cuts lines down to at most h, centred on the cursor line, and
-// says how much is hidden above and below.
-func scrollWindow(t Theme, lines []string, cursor, h, cw int) []string {
+// scrollWindow cuts lines down to at most h, centred on the cursor line.
+func scrollWindow(lines []string, cursor, h int) []string {
 	if h < minScroll || len(lines) <= h {
 		return lines
 	}
 	start := min(max(0, cursor-h/2), len(lines)-h)
-	end := start + h
-	out := append([]string(nil), lines[start:end]...)
-	if start > 0 {
-		out[0] = t.Muted.Render(padRight("  ↑ "+itoa(start)+" more", cw))
-	}
-	if end < len(lines) {
-		out[h-1] = t.Muted.Render(padRight("  ↓ "+itoa(len(lines)-end)+" more", cw))
-	}
-	return out
+	return lines[start : start+h]
 }
 
 // categoryLine is the header of one expense category: how many entries it
@@ -575,7 +589,7 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.index < 0 {
 		text := padRight("  nothing here yet — press a to add", cw)
 		if selected {
-			return t.Selected.Render(padRight("› "+strings.TrimSpace(text), cw))
+			return t.Selected.Render(padRight("  "+strings.TrimSpace(text), cw))
 		}
 		return t.Muted.Render(text)
 	}
@@ -602,7 +616,7 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	amount := padLeft(e.Amount.String(), amtW)
 
 	if selected {
-		return t.Selected.Bold(true).Render(padRight("› "+label+marker+amount, cw))
+		return t.Selected.Bold(true).Render(padRight("  "+label+marker+amount, cw))
 	}
 	if (e.IsForecast() && m.dash.month.HasActuals()) || (r.kind == model.Income && e.IsTransfer()) {
 		// Still only expected: the bank has not reported it yet.

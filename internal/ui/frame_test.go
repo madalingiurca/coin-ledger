@@ -71,3 +71,20 @@ func TestKeybarKeepsTheMenuHint(t *testing.T) {
 		t.Error("bar wider than the terminal")
 	}
 }
+
+// The numbers in the pane titles are keys that jump to those screens.
+func TestNumberKeysJumpBetweenScreens(t *testing.T) {
+	m := app(t, testStore(t))
+	for _, step := range []struct {
+		key   string
+		want  screen
+		title string
+	}{{"2", screenHistory, "[2] History"}, {"3", screenPayees, "[3] Uncategorised payees"},
+		{"4", screenImport, "[4] Import"}, {"1", screenMonth, "[1] "}} {
+		m = press(t, m, step.key)
+		if m.screen != step.want {
+			t.Errorf("%s went to screen %d, want %d", step.key, m.screen, step.want)
+		}
+		mustContain(t, plain(m), step.title)
+	}
+}

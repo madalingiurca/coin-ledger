@@ -66,19 +66,19 @@ func (m Model) historyHints() []hint {
 		keyHint("enter", "open month"),
 		keyHint("esc", "back"),
 		keyHint("q", "quit"),
+		keyHint("?", "keys"),
 	}
 }
 
 func (m Model) historyView(cw int) string {
 	t := m.theme
-	lines := []string{t.Title.Render("history")}
+	var lines []string
 
 	switch {
 	case m.hist.err != nil:
-		return strings.Join(append(lines, "", wrap(t.Danger, cw, m.hist.err.Error())), "\n")
+		return wrap(t.Danger, cw, m.hist.err.Error())
 	case len(m.hist.rows) == 0:
-		return strings.Join(append(lines, "",
-			wrap(t.Muted, cw, "No months saved yet — press esc, then add your income.")), "\n")
+		return wrap(t.Muted, cw, "No months saved yet — press esc, then add your income.")
 	}
 
 	// Two columns are reserved on the left for the cursor marker, so selected
@@ -91,7 +91,7 @@ func (m Model) historyView(cw int) string {
 	}
 	scale := m.histScale()
 
-	lines = append(lines, "", t.Section.Render(m.histHeader(cw, full)))
+	lines = append(lines, t.Section.Render(m.histHeader(cw, full)))
 	for i, r := range m.hist.rows {
 		lines = append(lines, m.histRow(r, i == m.hist.cursor, cw, full, barW, scale))
 	}
@@ -115,7 +115,7 @@ func (m Model) histRow(r store.Summary, selected bool, cw int, full bool, barW i
 	t := m.theme
 	marker := "  "
 	if selected {
-		marker = "› "
+		marker = "  "
 	}
 	inner := cw - 2 - barW
 

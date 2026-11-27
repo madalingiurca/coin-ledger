@@ -16,24 +16,20 @@ const (
 	contentMin = 34
 	// amountCol is the fixed right-hand column every amount is aligned in.
 	amountCol = 13
-	// boxChrome is what a frame costs around its content: two border columns
-	// and two columns of padding on each side. A lipgloss Width covers both,
-	// so a frame is asked for cw+boxChrome to hold cw columns of content.
-	boxChrome = 6
 )
 
 // contentWidth is the usable width inside the frame for a terminal of w
 // columns. It never returns more than the terminal can hold: a frame wider
 // than the screen tears every line it draws.
 func contentWidth(w int) int {
-	inner := w - boxChrome - 2 // a column of breathing room on each side
+	inner := w - paneChrome
 	if inner > contentMax {
 		inner = contentMax
 	}
 	if inner < contentMin {
 		inner = contentMin
 	}
-	if fits := w - boxChrome; inner > fits {
+	if fits := w - paneChrome; inner > fits {
 		inner = max(1, fits)
 	}
 	return inner
@@ -121,57 +117,12 @@ func bar(t Theme, w, pct int) string {
 		t.BarEmpty.Render(strings.Repeat("░", w-filled))
 }
 
-// hint is one "key action" pair in a footer. Footers take hints rather than
-// rendered strings so they can shorten one when the terminal is too narrow to
-// hold it; a styled string could not be cut safely.
+// hint is one "key action" pair in the key bar. The bar takes hints rather
+// than rendered strings so it can leave one out when the terminal is too
+// narrow to hold it; a styled string could not be cut safely.
 type hint struct{ key, action string }
 
 func keyHint(key, action string) hint { return hint{key: key, action: action} }
-
-// footer lays key hints out across as many lines as it takes. Hints are worth
-// more than one tidy line: dropping the tail would hide "q quit" on exactly the
-// narrow terminals where it is hardest to guess.
-func footer(t Theme, w int, hints ...hint) string {
-	const gap = 3
-	sep := t.Footer.Render(strings.Repeat(" ", gap))
-
-	var lines []string
-	var line strings.Builder
-	used := 0
-	for _, h := range hints {
-		text, width := h.render(t, w)
-		if width == 0 {
-			continue
-		}
-		switch {
-		case used == 0:
-			line.WriteString(text)
-			used = width
-		case used+gap+width <= w:
-			line.WriteString(sep + text)
-			used += gap + width
-		default:
-			lines = append(lines, line.String())
-			line.Reset()
-			line.WriteString(text)
-			used = width
-		}
-	}
-	if used > 0 {
-		lines = append(lines, line.String())
-	}
-	return strings.Join(lines, "\n")
-}
-
-// render styles a hint, dropping its description and then trimming its key
-// when even one hint will not fit the terminal.
-func (h hint) render(t Theme, w int) (string, int) {
-	if full := lipgloss.Width(h.key) + 1 + lipgloss.Width(h.action); full <= w {
-		return t.Key.Render(h.key) + " " + t.Footer.Render(h.action), full
-	}
-	key := truncate(h.key, w)
-	return t.Key.Render(key), lipgloss.Width(key)
-}
 
 // itoa renders a small non-negative integer without pulling in strconv at
 // every call site.

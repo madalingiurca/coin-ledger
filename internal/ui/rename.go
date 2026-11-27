@@ -33,10 +33,8 @@ func newRename(t Theme, from string, count int) *renameState {
 func (r *renameState) restyle(t Theme) { r.name.SetStyles(textinput.DefaultStyles(t.dark)) }
 
 func (r *renameState) view(t Theme, cw int) string {
-	r.name.SetWidth(max(10, cw-8))
+	r.name.SetWidth(max(10, cw-9))
 	lines := []string{
-		t.Title.Render(truncate("Rename "+r.from, cw)),
-		"",
 		t.FieldOn.Render("› "+padRight("Name", 5)) + r.name.View(),
 		"",
 		wrap(t.Muted, cw, "Every entry in every month, and every payee rule, follows the new name. A name that already exists merges the two."),

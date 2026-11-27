@@ -328,7 +328,7 @@ func plural(n int, one, many string) string {
 const catVisible = 8
 
 func (c *catState) view(t Theme, cw int) string {
-	lines := []string{t.Title.Render(truncate(c.title, cw)), ""}
+	var lines []string
 
 	// The list scrolls around the cursor; the "new" row is its last line.
 	total := len(c.options) + 1
@@ -345,7 +345,7 @@ func (c *catState) view(t Theme, cw int) string {
 		}
 		switch {
 		case i == len(c.options):
-			c.newName.SetWidth(max(10, cw-6))
+			c.newName.SetWidth(max(10, cw-7))
 			if on && c.focus == catList {
 				lines = append(lines, caret+style.Render("+ ")+c.newName.View())
 			} else if v := strings.TrimSpace(c.newName.Value()); v != "" {
@@ -364,7 +364,7 @@ func (c *catState) view(t Theme, cw int) string {
 	}
 
 	if c.hasRule() {
-		c.match.SetWidth(max(10, cw-11))
+		c.match.SetWidth(max(10, cw-12))
 		caret, style := "  ", t.Field
 		if c.focus == catMatch {
 			caret, style = "› ", t.FieldOn

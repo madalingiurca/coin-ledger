@@ -353,7 +353,7 @@ func TestUncategorisedPayeesScreen(t *testing.T) {
 	m := appOn(t, s, october, testW, testH)
 	m = press(t, m, "u")
 	screen := plain(m)
-	mustContain(t, screen, "uncategorised", "2 payees", "Lidl", "400,00", "Bolt", "55,00")
+	mustContain(t, screen, "Uncategorised payees", "2 payees", "Lidl", "400,00", "Bolt", "55,00")
 	for _, unwanted := range []string{"Kaufland", "Rent"} {
 		if strings.Contains(screen, unwanted) {
 			t.Errorf("%q should not be listed:\n%s", unwanted, screen)
@@ -426,13 +426,13 @@ func TestLongMonthScrollsWithTheCursor(t *testing.T) {
 		if got := strings.Count(strings.TrimRight(screen, "\n"), "\n") + 1; got > h {
 			t.Fatalf("after %d moves the screen is %d lines tall, terminal has %d", moves, got, h)
 		}
-		mustContain(t, screen, "October 2026", "LEFT", "quit")
-		if !strings.Contains(screen, "› ") {
+		mustContain(t, screen, "October 2026", "LEFT", "Keys: ?", counter(m.dash.cursor, len(m.dash.rows())))
+		if _, e, ok := m.dash.currentEntry(); ok && !strings.Contains(screen, e.Label+" ") {
 			t.Fatalf("after %d moves the selected row is off screen:\n%s", moves, screen)
 		}
 		checkWidth(t, m)
 	}
-	mustContain(t, plain(m), "Shop 79", "more")
+	mustContain(t, plain(m), "Shop 79", "81 of 81─")
 
 	// The form still fits under a scrolled list.
 	m = press(t, m, "e")
@@ -514,7 +514,7 @@ func TestRenamingACategoryEverywhere(t *testing.T) {
 			m.dash.cursor = i
 		}
 	}
-	mustContain(t, plain(m), "e rename")
+	mustContain(t, plain(m), "Rename: e")
 	m = press(t, m, "e")
 	if m.rename == nil {
 		t.Fatalf("e on a header did not open the rename dialog:\n%s", plain(m))

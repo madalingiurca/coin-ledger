@@ -131,7 +131,7 @@ func checkWidth(t *testing.T, m Model) {
 func TestFirstRunIsInviting(t *testing.T) {
 	m := app(t, testStore(t))
 	screen := plain(m)
-	mustContain(t, screen, "budget", model.Today().Label(), "INCOME", "EXPENSES",
+	mustContain(t, screen, "[1] "+model.Today().Label(), "INCOME", "EXPENSES",
 		"nothing here yet", "new month · nothing saved yet", "0,00 lei")
 	checkWidth(t, m)
 }
@@ -384,7 +384,7 @@ func TestHistoryScreen(t *testing.T) {
 		t.Fatal("h did not open history")
 	}
 	screen := plain(m)
-	mustContain(t, screen, "history", "MONTH", "INCOME", "EXPENSES", "LEFT",
+	mustContain(t, screen, "[2] History", "MONTH", "INCOME", "EXPENSES", "LEFT",
 		"2026-09", "2026-08", "2026-07", "7.750,00", "-1.500,00", "Average left over 3 months")
 	checkWidth(t, m)
 

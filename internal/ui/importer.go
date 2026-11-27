@@ -443,13 +443,13 @@ func (m *Model) commitImport() {
 
 func (m Model) importHints() []hint {
 	if m.imp.stage == stageMatches {
-		return []hint{keyHint("space", "replace / keep both / unrelated"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
+		return []hint{keyHint("space", "replace / keep both / unrelated"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
 	}
 	if m.imp.stage == stagePreview {
 		if m.imp.newCount() == 0 {
-			return []hint{keyHint("esc", "back"), keyHint("enter", "close"), keyHint("q", "quit")}
+			return []hint{keyHint("esc", "back"), keyHint("enter", "close"), keyHint("q", "quit"), keyHint("?", "keys")}
 		}
-		return []hint{keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
+		return []hint{keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit"), keyHint("?", "keys")}
 	}
 	return []hint{
 		keyHint("enter", "open"),
@@ -457,6 +457,7 @@ func (m Model) importHints() []hint {
 		keyHint("~", "home"),
 		keyHint("esc", "cancel"),
 		keyHint("q", "quit"),
+		keyHint("?", "keys"),
 	}
 }
 
@@ -470,6 +471,29 @@ func (s *importState) newCount() int {
 	return n
 }
 
+// importTitle names the import pane after the stage it is at.
+func (m Model) importTitle() string {
+	s := m.imp
+	switch s.stage {
+	case stagePreview:
+		return "[4] Import " + s.st.Bank + " · " + plural(len(s.st.Txns), "transaction", "transactions")
+	case stageMatches:
+		return "[4] Already planned · " + plural(len(s.pairs()), "match", "matches")
+	}
+	return "[4] Import · pick a bank CSV"
+}
+
+func (m Model) importCounter() string {
+	s := m.imp
+	switch s.stage {
+	case stagePreview:
+		return ""
+	case stageMatches:
+		return counter(s.matchCursor, len(s.pairs()))
+	}
+	return counter(s.cursor, len(s.entries))
+}
+
 func (m Model) importView(cw, maxH int) string {
 	switch m.imp.stage {
 	case stagePreview:
@@ -479,9 +503,7 @@ func (m Model) importView(cw, maxH int) string {
 	}
 	t := m.theme
 	s := m.imp
-	name, right := spread("import", "pick a bank CSV", cw)
-	lines := []string{t.Title.Render(name) + t.Muted.Render(right)}
-	lines = append(lines, t.Muted.Render(truncate(tildePath(s.dir), cw)), "")
+	lines := []string{t.Muted.Render(truncate(tildePath(s.dir), cw)), ""}
 
 	if s.dirErr != nil {
 		lines = append(lines, wrap(t.Danger, cw, s.dirErr.Error()))
@@ -504,7 +526,7 @@ func (m Model) importView(cw, maxH int) string {
 		text = padRight(truncate(text, max(4, cw-2-rw-1)), max(0, cw-2-rw))
 		switch {
 		case i == s.cursor:
-			body = append(body, t.Selected.Bold(true).Render(padRight("› "+text+right, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+text+right, cw)))
 		case e.dir:
 			body = append(body, t.Marker.Render("  "+text)+t.Muted.Render(right))
 		default:
@@ -518,7 +540,7 @@ func (m Model) importView(cw, maxH int) string {
 	}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, s.cursor, maxH-fixed, cw)
+		body = scrollWindow(body, s.cursor, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	lines = append(lines, tail...)
@@ -528,9 +550,7 @@ func (m Model) importView(cw, maxH int) string {
 func (m Model) previewView(cw int) string {
 	t := m.theme
 	s := m.imp
-	name, right := spread("import "+s.st.Bank, plural(len(s.st.Txns), "transaction", "transactions"), cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right)}
-	lines = append(lines, t.Muted.Render(truncate(filepath.Base(s.file), cw)), "")
+	lines := []string{t.Muted.Render(truncate(filepath.Base(s.file), cw)), ""}
 
 	switch c := s.st.Check; {
 	case !c.Done:
@@ -609,10 +629,8 @@ func (m Model) matchesView(cw, maxH int) string {
 	t := m.theme
 	s := m.imp
 	pairs := s.pairs()
-	name, right := spread("already planned", plural(len(pairs), "match", "matches"), cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right), ""}
-	lines = append(lines, wrap(t.Muted, cw,
-		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan, in its category, so the larger of the two counts. Unrelated adds the row on its own."), "")
+	lines := []string{wrap(t.Muted, cw,
+		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan, in its category, so the larger of the two counts. Unrelated adds the row on its own."), ""}
 
 	amtW := min(amountCol, max(6, cw-4-6))
 	choiceW := len("keep both") + 2
@@ -647,7 +665,7 @@ func (m Model) matchesView(cw, maxH int) string {
 		if i == s.matchCursor {
 			cursorLine = len(body)
 			body = append(body,
-				t.Selected.Bold(true).Render(padRight("› "+plan+padLeft(choice, choiceW), cw)),
+				t.Selected.Bold(true).Render(padRight("  "+plan+padLeft(choice, choiceW), cw)),
 				t.Selected.Render(padRight("  "+bank, cw)))
 			continue
 		}
@@ -657,7 +675,7 @@ func (m Model) matchesView(cw, maxH int) string {
 	}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n"))
-		body = scrollWindow(t, body, cursorLine, maxH-fixed, cw)
+		body = scrollWindow(body, cursorLine, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	return strings.Join(lines, "\n")

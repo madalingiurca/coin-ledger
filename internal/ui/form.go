@@ -188,21 +188,21 @@ func (m Model) formKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (f *formState) view(t Theme, cw int) string {
-	title := "Add "
+// title names the dialog: what it adds or edits.
+func (f *formState) title() string {
 	if f.id != "" {
-		title = "Edit "
+		return "Edit " + f.kind.String()
 	}
-	title += f.kind.String()
+	return "Add " + f.kind.String()
+}
 
-	fieldW := max(10, cw-11)
+func (f *formState) view(t Theme, cw int) string {
+	fieldW := max(10, cw-12)
 	f.label.SetWidth(fieldW)
 	f.amount.SetWidth(fieldW)
 	f.category.SetWidth(fieldW)
 
 	lines := []string{
-		t.Title.Render(title),
-		"",
 		f.fieldLine(t, "Label", f.label.View(), f.focus == fieldLabel),
 		f.fieldLine(t, "Amount", f.amount.View(), f.focus == fieldAmount),
 	}
