@@ -2,7 +2,9 @@ package ui
 
 import (
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/lipgloss/v2"
 
@@ -17,6 +19,9 @@ type statsView int
 const (
 	statsCategory statsView = iota
 	statsLabel
+	statsLargest
+	statsWeek
+	statsIncome
 	statsViews // how many there are
 )
 
@@ -29,6 +34,12 @@ func (v statsView) title() string {
 	switch v {
 	case statsLabel:
 		return "BY LABEL"
+	case statsLargest:
+		return "LARGEST"
+	case statsWeek:
+		return "BY WEEK"
+	case statsIncome:
+		return "INCOME"
 	}
 	return "BY CATEGORY"
 }
@@ -58,6 +69,12 @@ func (m Model) statsPanel(cw, h int) string {
 	switch m.stats {
 	case statsLabel:
 		b = m.byLabel()
+	case statsLargest:
+		b = m.largest()
+	case statsWeek:
+		b = m.byWeek()
+	case statsIncome:
+		b = m.bySource()
 	default:
 		b = m.byCategory()
 	}
@@ -201,4 +218,71 @@ func sumByLabel(entries []counted) []statItem {
 		items[i].amount += c.amount
 	}
 	return items
+}
+
+// largest are the month's single biggest expenses, each for what it counts.
+func (m Model) largest() breakdown {
+	var items []statItem
+	for _, c := range countedExpenses(m.dash.month) {
+		items = append(items, statItem{strings.TrimSpace(c.entry.Label), c.amount})
+	}
+	return breakdown{items: largestFirst(items), total: m.dash.month.Total(model.Expense),
+		empty: "No expenses this month"}
+}
+
+// byWeek is when the money went: what the bank booked in each week of the
+// month, the 1st to the 7th, the 8th to the 14th and so on, in order. Plans
+// have no date, so only bank rows are counted, as a share of what they add
+// up to. A row booked in the month before or after but counted in this one,
+// like an early rent, gets a bar of its own at that end.
+func (m Model) byWeek() breakdown {
+	mo := m.dash.month
+	days := time.Date(mo.Key.Year, mo.Key.Month+1, 0, 0, 0, 0, 0, time.UTC).Day()
+	weeks := (days + 6) / 7
+	sums := make([]money.Amount, weeks)
+	var before, after, total money.Amount
+	for _, e := range mo.Expenses {
+		d, err := time.Parse("2006-01-02", e.Date)
+		if err != nil || e.IsTransfer() || e.Actual() <= 0 {
+			continue
+		}
+		total += e.Actual()
+		switch k := model.KeyOf(d); {
+		case k.Before(mo.Key):
+			before += e.Actual()
+		case k.After(mo.Key):
+			after += e.Actual()
+		default:
+			sums[min(weeks-1, (d.Day()-1)/7)] += e.Actual()
+		}
+	}
+	if total <= 0 {
+		return breakdown{empty: "No bank rows yet"}
+	}
+	month := mo.Key.Month.String()[:3]
+	var items []statItem
+	if before > 0 {
+		items = append(items, statItem{"in " + mo.Key.Prev().Month.String()[:3], before})
+	}
+	for w := range weeks {
+		from, to := w*7+1, min(days, w*7+7)
+		items = append(items, statItem{strconv.Itoa(from) + "–" + strconv.Itoa(to) + " " + month, sums[w]})
+	}
+	if after > 0 {
+		items = append(items, statItem{"in " + mo.Key.Next().Month.String()[:3], after})
+	}
+	return breakdown{items: items, total: total}
+}
+
+// bySource is where the month's money came from: income added up by payee or
+// label, largest first, without transfers from your own accounts.
+func (m Model) bySource() breakdown {
+	var entries []counted
+	for _, e := range m.dash.month.Income {
+		if !e.IsTransfer() && e.Counted() > 0 {
+			entries = append(entries, counted{e, e.Counted()})
+		}
+	}
+	return breakdown{items: largestFirst(sumByLabel(entries)), total: m.dash.month.Total(model.Income),
+		empty: "No income this month"}
 }

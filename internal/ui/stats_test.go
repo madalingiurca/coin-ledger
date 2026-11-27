@@ -76,17 +76,17 @@ func TestCountedExpensesAddUpToTheTotal(t *testing.T) {
 
 func TestStatsCycleWithS(t *testing.T) {
 	m, _ := statsApp(t)
-	mustContain(t, plain(m), "BY CATEGORY", "1/2 s")
+	mustContain(t, plain(m), "BY CATEGORY", "1/5 s")
 
 	m = press(t, m, "s")
 	screen := plain(m)
-	mustContain(t, screen, "BY LABEL", "2/2 s")
+	mustContain(t, screen, "BY LABEL", "2/5 s")
 	if strings.Contains(screen, "BY CATEGORY") {
 		t.Errorf("both views on screen:\n%s", screen)
 	}
-	mustContain(t, plain(press(t, m, "s")), "BY CATEGORY")
+	mustContain(t, plain(press(t, m, "s")), "LARGEST")
 	mustContain(t, plain(press(t, m, "S")), "BY CATEGORY")
-	mustContain(t, plain(press(t, m, "S", "S")), "BY LABEL")
+	mustContain(t, plain(press(t, m, "S", "S")), "INCOME")
 
 	// The choice stays while paging through months.
 	mustContain(t, plain(press(t, m, "]")), "BY LABEL")
@@ -114,5 +114,69 @@ func TestByLabelAddsUpOnePayee(t *testing.T) {
 	}
 	if b.items[0].name != "Mortgage" {
 		t.Errorf("largest is not first: %v", b.items)
+	}
+}
+
+func TestEveryViewDraws(t *testing.T) {
+	m, _ := statsApp(t)
+	for _, want := range []string{"BY CATEGORY", "BY LABEL", "LARGEST", "BY WEEK", "INCOME"} {
+		mustContain(t, plain(m), want)
+		checkWidth(t, m)
+		m = press(t, m, "s")
+	}
+	mustContain(t, plain(m), "BY CATEGORY")
+}
+
+func TestByWeekCountsBankRowsByWeek(t *testing.T) {
+	m, mo := statsApp(t)
+	// A row booked late in September that counts for October.
+	if _, ok := mo.AddImported(model.Expense, model.Imported{Label: "Rent", Amount: money.FromLei(100),
+		Date: "2026-09-29", Payee: "rent", Source: model.SourceING, Key: "p9"}); !ok {
+		t.Fatal("row not added")
+	}
+	m.dash.month = mo
+	got := map[string]money.Amount{}
+	var names []string
+	for _, it := range m.byWeek().items {
+		got[it.name] = it.amount
+		names = append(names, it.name)
+	}
+	want := []string{"in Sep", "1–7 Oct", "8–14 Oct", "15–21 Oct", "22–28 Oct", "29–31 Oct"}
+	if strings.Join(names, ",") != strings.Join(want, ",") {
+		t.Fatalf("weeks = %v, want %v", names, want)
+	}
+	// Rata Credit 2154 + Lidl 900 + Bolt 27; the transfer is left out.
+	if got["1–7 Oct"] != money.FromLei(3081) {
+		t.Errorf("first week = %s", got["1–7 Oct"])
+	}
+	if got["15–21 Oct"] != money.FromLei(31) || got["in Sep"] != money.FromLei(100) {
+		t.Errorf("weeks = %v", got)
+	}
+}
+
+func TestByWeekWithoutBankRows(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(statsMonth)
+	mo.Add(model.Expense, "Rent", money.FromLei(2800), true)
+	if err := s.Save(mo); err != nil {
+		t.Fatal(err)
+	}
+	m := New(s)
+	m.openMonth(statsMonth)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mustContain(t, plain(press(t, next.(Model), "s", "s", "s")), "BY WEEK", "No bank rows yet")
+}
+
+func TestBySourceLeavesTransfersOut(t *testing.T) {
+	m, mo := statsApp(t)
+	mo.AddImported(model.Income, model.Imported{Label: "Own account", Amount: money.FromLei(900),
+		Date: "2026-10-07", Payee: "own account", Source: model.SourceRevolut, Key: "p10", Category: model.Transfers})
+	m.dash.month = mo
+	var names []string
+	for _, it := range m.bySource().items {
+		names = append(names, it.name)
+	}
+	if strings.Join(names, ",") != "Salary,Freelance,Employer SRL" {
+		t.Errorf("sources = %v", names)
 	}
 }
