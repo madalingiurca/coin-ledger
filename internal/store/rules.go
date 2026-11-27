@@ -56,6 +56,9 @@ func (s *Store) LoadRules() (*model.Rules, error) {
 	for i := range r.Links {
 		r.Links[i].Match = model.NormalizePayee(r.Links[i].Match)
 	}
+	for i := range r.NextMonth {
+		r.NextMonth[i].Match = model.NormalizePayee(r.NextMonth[i].Match)
+	}
 	r.AddCategory(model.Transfers)
 	return &r, nil
 }

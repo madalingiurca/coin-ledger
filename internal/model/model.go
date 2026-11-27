@@ -562,3 +562,67 @@ func (m *Month) newID() string {
 		return id
 	}
 }
+
+// Clone returns a copy of the month that can be changed without touching m.
+func (m *Month) Clone() *Month {
+	c := *m
+	c.Income = slices.Clone(m.Income)
+	c.Expenses = slices.Clone(m.Expenses)
+	c.SkippedKeys = slices.Clone(m.SkippedKeys)
+	return &c
+}
+
+// Take removes an entry so it can go into another month. Unlike Remove it
+// does not remember the bank row as deleted: the row lives on elsewhere. A
+// bank row that had replaced a forecast leaves the forecast behind, as it was
+// before the import, and goes on its own.
+func (m *Month) Take(kind Kind, id string) (Entry, error) {
+	entries := *m.list(kind)
+	for i, e := range entries {
+		if e.ID != id {
+			continue
+		}
+		if e.IsForecast() || e.Planned == 0 {
+			*m.list(kind) = append(entries[:i:i], entries[i+1:]...)
+			return e, nil
+		}
+		row := Entry{Label: e.Label, Amount: e.Amount, Date: e.Date, Payee: e.Payee, Source: e.Source, Key: e.Key}
+		if kind == Expense || e.IsTransfer() {
+			row.Category, row.Auto = e.Category, e.Auto
+		}
+		entries[i] = Entry{ID: e.ID, Label: e.Label, Amount: e.Planned, Recurring: e.Recurring, Category: e.Category}
+		if kind == Income && e.IsTransfer() {
+			entries[i].Category = ""
+		}
+		return row, nil
+	}
+	return Entry{}, fmt.Errorf("%s %q: %w", kind, id, ErrNotFound)
+}
+
+// Put adds an entry taken from another month, under a new id. A bank row
+// already in the month is refused; one deleted here before is welcome back.
+func (m *Month) Put(kind Kind, e Entry) (string, error) {
+	if e.Key != "" {
+		for _, k := range []Kind{Income, Expense} {
+			for _, have := range m.Entries(k) {
+				if have.Key == e.Key {
+					return "", fmt.Errorf("%s is already in %s", e.Label, m.Key.Label())
+				}
+			}
+		}
+		m.SkippedKeys = slices.DeleteFunc(m.SkippedKeys, func(k string) bool { return k == e.Key })
+		if len(m.SkippedKeys) == 0 {
+			m.SkippedKeys = nil
+		}
+	}
+	e.ID = m.newID()
+	*m.list(kind) = append(*m.list(kind), e)
+	return e.ID, nil
+}
+
+// AsImported is a bank entry on its way into another month, so that it can
+// replace a forecast there.
+func (e Entry) AsImported() Imported {
+	return Imported{Label: e.Label, Amount: e.Amount, Date: e.Date, Payee: e.Payee,
+		Source: e.Source, Key: e.Key, Category: e.Category, Auto: e.Auto}
+}

@@ -35,6 +35,7 @@ func TestRulesRoundTrip(t *testing.T) {
 	r, _ := s.LoadRules()
 	r.SetRule("Bolt", "Transport")
 	r.SetLink("Rata Credit", "Mortgage")
+	r.SetNextMonth("Acme SRL", 27)
 	if err := s.SaveRules(r); err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +49,9 @@ func TestRulesRoundTrip(t *testing.T) {
 	}
 	if l, _ := got.LinkFor("rata credit"); l != "Mortgage" {
 		t.Errorf("link lost: %q", l)
+	}
+	if !got.CountsForNextMonth("ACME SRL", 28) || got.CountsForNextMonth("ACME SRL", 26) {
+		t.Errorf("next-month rule lost: %+v", got.NextMonth)
 	}
 
 	// The categories file must not be mistaken for a month.

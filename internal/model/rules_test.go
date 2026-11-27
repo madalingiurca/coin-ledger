@@ -258,3 +258,30 @@ func TestIncomeTransfers(t *testing.T) {
 		t.Errorf("income took a spending category: %q", m3.Income[0].Category)
 	}
 }
+
+func TestNextMonthRules(t *testing.T) {
+	r := NewRules()
+	if r.CountsForNextMonth("ACME SRL", 30) {
+		t.Fatal("no rule yet")
+	}
+	if !r.SetNextMonth("Acme  srl", 28) {
+		t.Fatal("first rule not stored")
+	}
+	if r.SetNextMonth("ACME SRL", 30) {
+		t.Error("a later day narrowed the rule")
+	}
+	if !r.SetNextMonth("ACME SRL", 27) || r.NextMonth[0].FromDay != 27 || len(r.NextMonth) != 1 {
+		t.Errorf("rules = %+v", r.NextMonth)
+	}
+	for day, want := range map[int]bool{2: false, 26: false, 27: true, 31: true} {
+		if got := r.CountsForNextMonth("ACME SRL BUCURESTI", day); got != want {
+			t.Errorf("day %d: %v, want %v", day, got, want)
+		}
+	}
+	if r.CountsForNextMonth("OTHER", 30) {
+		t.Error("another payee moved")
+	}
+	if !r.DropNextMonth("ACME SRL BUCURESTI") || r.NextMonth != nil || r.DropNextMonth("ACME SRL") {
+		t.Errorf("drop left %+v", r.NextMonth)
+	}
+}
