@@ -251,11 +251,18 @@ func (m *Month) Entries(kind Kind) []Entry { return *m.list(kind) }
 // so there forecast and actual simply add up. Income has no categories to tie
 // anything together either, so what you planned and what arrived add up: a
 // salary you typed counts beside the transfers the bank reports, and a bank
-// row that is the salary replaces it in the import instead. Transfers are
-// left out.
+// row that is the salary replaces it in the import instead, and then only
+// what arrived counts. Transfers are left out.
 func (m *Month) Total(kind Kind) money.Amount {
 	if kind == Income {
-		return m.ForecastTotal(Income) + m.ActualTotal(Income)
+		// A bank row that replaced a plan counts once, for what arrived.
+		var sum money.Amount
+		for _, e := range m.Income {
+			if !e.IsTransfer() {
+				sum += e.Amount
+			}
+		}
+		return sum
 	}
 	var sum money.Amount
 	for _, c := range m.Categories() {
