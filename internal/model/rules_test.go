@@ -285,3 +285,24 @@ func TestNextMonthRules(t *testing.T) {
 		t.Errorf("drop left %+v", r.NextMonth)
 	}
 }
+
+func TestPaidBackCategories(t *testing.T) {
+	r := NewRules()
+	if r.IsPaidBack("PayAndReceiveLater") {
+		t.Fatal("a fresh category is paid back")
+	}
+	if !r.TogglePaidBack("PayAndReceiveLater") || !r.IsPaidBack("PayAndReceiveLater") {
+		t.Fatal("toggle on")
+	}
+	if r.TogglePaidBack(Transfers) || r.IsPaidBack(Transfers) {
+		t.Error("Transfers became paid back")
+	}
+	r.AddCategory("PayAndReceiveLater")
+	r.RenameCategory("PayAndReceiveLater", "Reimbursable")
+	if r.IsPaidBack("PayAndReceiveLater") || !r.IsPaidBack("Reimbursable") {
+		t.Errorf("rename lost the flag: %v", r.PaidBack)
+	}
+	if r.TogglePaidBack("Reimbursable") || r.PaidBack != nil {
+		t.Errorf("toggle off left %v", r.PaidBack)
+	}
+}

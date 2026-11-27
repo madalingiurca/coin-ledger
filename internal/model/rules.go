@@ -31,6 +31,31 @@ type Rules struct {
 	Links      []Link   `json:"links"`
 	// NextMonth lists payees whose late rows count for the month after.
 	NextMonth []Shift `json:"next_month,omitempty"`
+	// PaidBack lists the categories whose expenses are expected to be paid
+	// back, so the ones no refund is linked to yet show as open.
+	PaidBack []string `json:"paid_back,omitempty"`
+}
+
+// IsPaidBack reports whether expenses in category are expected to come back.
+func (r *Rules) IsPaidBack(category string) bool {
+	return category != "" && slices.Contains(r.PaidBack, category)
+}
+
+// TogglePaidBack flips whether a category's expenses are expected to be paid
+// back and reports the new state. Transfers never are.
+func (r *Rules) TogglePaidBack(category string) bool {
+	if category == "" || category == Transfers {
+		return false
+	}
+	if r.IsPaidBack(category) {
+		r.PaidBack = slices.DeleteFunc(r.PaidBack, func(c string) bool { return c == category })
+		if len(r.PaidBack) == 0 {
+			r.PaidBack = nil
+		}
+		return false
+	}
+	r.PaidBack = append(r.PaidBack, category)
+	return true
 }
 
 // Shift remembers that rows from a payee booked on FromDay or later belong to
@@ -160,6 +185,10 @@ func (r *Rules) RenameCategory(from, to string) bool {
 		if r.Rules[i].Category == from {
 			r.Rules[i].Category, changed = to, true
 		}
+	}
+	if r.IsPaidBack(from) {
+		r.PaidBack = slices.DeleteFunc(r.PaidBack, func(c string) bool { return c == from || c == to })
+		r.PaidBack = append(r.PaidBack, to)
 	}
 	return changed
 }
