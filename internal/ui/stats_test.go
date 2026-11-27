@@ -76,17 +76,17 @@ func TestCountedExpensesAddUpToTheTotal(t *testing.T) {
 
 func TestStatsCycleWithS(t *testing.T) {
 	m, _ := statsApp(t)
-	mustContain(t, plain(m), "BY CATEGORY", "1/5 s")
+	mustContain(t, plain(m), "BY CATEGORY", "1/6 s")
 
 	m = press(t, m, "s")
 	screen := plain(m)
-	mustContain(t, screen, "BY LABEL", "2/5 s")
+	mustContain(t, screen, "BY LABEL", "2/6 s")
 	if strings.Contains(screen, "BY CATEGORY") {
 		t.Errorf("both views on screen:\n%s", screen)
 	}
 	mustContain(t, plain(press(t, m, "s")), "LARGEST")
 	mustContain(t, plain(press(t, m, "S")), "BY CATEGORY")
-	mustContain(t, plain(press(t, m, "S", "S")), "INCOME")
+	mustContain(t, plain(press(t, m, "S", "S")), "VS SEPTEMBER")
 
 	// The choice stays while paging through months.
 	mustContain(t, plain(press(t, m, "]")), "BY LABEL")
@@ -119,7 +119,7 @@ func TestByLabelAddsUpOnePayee(t *testing.T) {
 
 func TestEveryViewDraws(t *testing.T) {
 	m, _ := statsApp(t)
-	for _, want := range []string{"BY CATEGORY", "BY LABEL", "LARGEST", "BY WEEK", "INCOME"} {
+	for _, want := range []string{"BY CATEGORY", "BY LABEL", "LARGEST", "BY WEEK", "INCOME", "VS SEPTEMBER"} {
 		mustContain(t, plain(m), want)
 		checkWidth(t, m)
 		m = press(t, m, "s")
@@ -179,4 +179,36 @@ func TestBySourceLeavesTransfersOut(t *testing.T) {
 	if strings.Join(names, ",") != "Salary,Freelance,Employer SRL" {
 		t.Errorf("sources = %v", names)
 	}
+}
+
+func TestVsLastMonth(t *testing.T) {
+	s := testStore(t)
+	statsFixture(t, s)
+	m := New(s)
+	m.openMonth(statsMonth)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = press(t, next.(Model), "S")
+	mustContain(t, plain(m), "VS SEPTEMBER", "Nothing saved for September 2026")
+
+	sep := model.New(statsMonth.Prev())
+	for _, f := range []struct {
+		cat string
+		lei int64
+	}{{"Loan", 2300}, {"Groceries", 1200}, {"Fun", 400}} {
+		id := sep.Add(model.Expense, f.cat, money.FromLei(f.lei), false)
+		if err := sep.SetCategory(id, f.cat); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Save(sep); err != nil {
+		t.Fatal(err)
+	}
+	screen := plain(m)
+	mustContain(t, screen, "All expenses", "4.258,00 +358,00",
+		"Groceries", "1.700,00 +500,00", "Fun", "0,00 −400,00", "2.300,00    same")
+	// The biggest change comes first.
+	if strings.Index(screen, "Groceries ") > strings.Index(screen, "Fun ") {
+		t.Errorf("biggest change is not first:\n%s", screen)
+	}
+	checkWidth(t, m)
 }

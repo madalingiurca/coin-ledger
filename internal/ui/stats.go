@@ -22,6 +22,7 @@ const (
 	statsLargest
 	statsWeek
 	statsIncome
+	statsVsLast
 	statsViews // how many there are
 )
 
@@ -40,6 +41,8 @@ func (v statsView) title() string {
 		return "BY WEEK"
 	case statsIncome:
 		return "INCOME"
+	case statsVsLast:
+		return "VS LAST MONTH"
 	}
 	return "BY CATEGORY"
 }
@@ -75,16 +78,25 @@ func (m Model) statsPanel(cw, h int) string {
 		b = m.byWeek()
 	case statsIncome:
 		b = m.bySource()
+	case statsVsLast:
+		return m.vsLastMonth(cw, h)
 	default:
 		b = m.byCategory()
 	}
 	return m.drawBreakdown(m.stats, b, cw, h)
 }
 
+// statsHead heads a breakdown with its name and where it is in the cycle.
+func (m Model) statsHead(title string, cw int) string {
+	t := m.theme
+	counter := itoa(int(m.stats)+1) + "/" + itoa(int(statsViews)) + " s"
+	return t.Section.Render(padRight(truncate(title, cw-lipgloss.Width(counter)-1), cw-lipgloss.Width(counter))) +
+		t.Muted.Render(counter)
+}
+
 func (m Model) drawBreakdown(v statsView, b breakdown, cw, h int) string {
 	t := m.theme
-	counter := itoa(int(v)+1) + "/" + itoa(int(statsViews)) + " s"
-	head := t.Section.Render(padRight(v.title(), cw-lipgloss.Width(counter))) + t.Muted.Render(counter)
+	head := m.statsHead(v.title(), cw)
 	if len(b.items) == 0 || b.total <= 0 {
 		if b.empty == "" {
 			b.empty = "Nothing to show this month"
@@ -285,4 +297,95 @@ func (m Model) bySource() breakdown {
 	}
 	return breakdown{items: largestFirst(sumByLabel(entries)), total: m.dash.month.Total(model.Income),
 		empty: "No income this month"}
+}
+
+// vsLastMonth sets each category against the month before: what it comes to
+// now and how much more or less that is, the biggest change first. More
+// spent is drawn as a warning, less as good news. The month before is read
+// from its file each time, so a row just moved there is counted.
+func (m Model) vsLastMonth(cw, h int) string {
+	t := m.theme
+	prevKey := m.dash.key.Prev()
+	head := m.statsHead("VS "+strings.ToUpper(prevKey.Month.String()), cw)
+	if !m.store.Exists(prevKey) {
+		return head + "\n" + t.Muted.Render(truncate("Nothing saved for "+prevKey.Label(), cw))
+	}
+	prev, err := m.store.Load(prevKey)
+	if err != nil {
+		return head + "\n" + t.Muted.Render(truncate(prevKey.Label()+" cannot be read", cw))
+	}
+
+	type change struct {
+		name      string
+		now, then money.Amount
+	}
+	at := map[string]int{}
+	var rows []change
+	add := func(mo *model.Month, now bool) {
+		for _, c := range mo.Categories() {
+			if c.Projected <= 0 {
+				continue
+			}
+			i, ok := at[c.Name]
+			if !ok {
+				i = len(rows)
+				at[c.Name] = i
+				rows = append(rows, change{name: categoryName(c.Name)})
+			}
+			if now {
+				rows[i].now = c.Projected
+			} else {
+				rows[i].then = c.Projected
+			}
+		}
+	}
+	add(m.dash.month, true)
+	add(prev, false)
+	abs := func(a money.Amount) money.Amount { return max(a, -a) }
+	sort.SliceStable(rows, func(i, j int) bool {
+		return abs(rows[i].now-rows[i].then) > abs(rows[j].now-rows[j].then)
+	})
+	total := change{name: "All expenses", now: m.dash.month.Total(model.Expense), then: prev.Total(model.Expense)}
+
+	signed := func(d money.Amount) string {
+		switch {
+		case d > 0:
+			return "+" + d.String()
+		case d < 0:
+			return "−" + (-d).String()
+		}
+		return "same"
+	}
+	nowW, deltaW := 0, 0
+	for _, r := range append(rows, total) {
+		nowW = max(nowW, lipgloss.Width(r.now.String()))
+		deltaW = max(deltaW, lipgloss.Width(signed(r.now-r.then)))
+	}
+	line := func(r change, ls lipgloss.Style) string {
+		d := r.now - r.then
+		ds := t.Muted
+		switch {
+		case d > 0:
+			ds = t.Negative
+		case d < 0:
+			ds = t.Positive
+		}
+		right := padLeft(r.now.String(), nowW) + " " + padLeft(signed(d), deltaW)
+		left := truncate(r.name, max(0, cw-lipgloss.Width(right)-2))
+		return ls.Render(left) + t.Leader.Render(leader(cw-lipgloss.Width(left)-lipgloss.Width(right))) +
+			t.Amount.Render(padLeft(r.now.String(), nowW)) + " " + ds.Render(padLeft(signed(d), deltaW))
+	}
+
+	lines := []string{head, line(total, t.Label)}
+	shown := len(rows)
+	if shown > h-2 {
+		shown = max(0, h-3)
+	}
+	for _, r := range rows[:shown] {
+		lines = append(lines, line(r, t.Label))
+	}
+	if more := len(rows) - shown; more > 0 {
+		lines = append(lines, t.Muted.Render("+ "+itoa(more)+" more"))
+	}
+	return strings.Join(lines, "\n")
 }
