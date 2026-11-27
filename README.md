@@ -17,7 +17,9 @@ It takes no arguments and no flags. Everything happens on screen:
 | `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` unfolds or folds it (categories start folded) |
 | `d` | delete |
 | `r` | carry the entry into future months (`↻`) |
-| `c` | put an expense in a category, and optionally every expense from its payee |
+| `c` | put an expense in a category, and optionally every expense from its payee; the cursor stays in the list you are working through |
+| `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
+| `tab` | next pane: income, To categorise, expenses |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
 | `>` / `<` | move the entry to the next / previous month |
 | `I` | import a bank statement |
@@ -36,7 +38,8 @@ the payee's late rows go there by themselves from then on. Importing the same fi
 again adds nothing.
 
 **Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows,
-in every month and on every later import. Money moving between your own ING and
+in every month and on every later import. Expenses still without a category wait in
+their own To categorise pane, beside the month on a wide terminal. Money moving between your own ING and
 Revolut accounts is filed under Transfers and not counted.
 
 Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when set,

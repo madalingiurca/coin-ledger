@@ -197,9 +197,13 @@ their bottom border, and the screen behind keeps its place.
 
 **Month** (home). Income and expenses are two panes, one over the other: income sized to
 what it holds (at most a third of the height), expenses taking the rest. The pane holding
-the cursor is the focused one, and `tab` moves the cursor to the other. A Totals pane sits
+the cursor is the focused one, and `tab` moves the cursor to the next. A Totals pane sits
 beside them from 100 columns up, and a Left pane under them below that. Income, then expenses under category headers
-(`▸ Groceries (3)  1.230,00 of 1.500,00`), Uncategorised first and Transfers last. Categories start folded, header and total only; `enter` or `space` on a header unfolds it (`▾`), and it stays unfolded while paging months. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
+(`▸ Groceries (3)  1.230,00 of 1.500,00`), Transfers last. Expenses with no category
+are not a category there but a To categorise pane of their own, laid out by day and always
+open: beside the month above the Totals when the terminal has 44 columns to spare for it,
+otherwise between income and expenses. `tab` visits income, To categorise and expenses in
+turn. Categories start folded, header and total only; `enter` or `space` on a header unfolds it (`▾`), and it stays unfolded while paging months. Inside a category the bank rows sit under a heading per day (`Wed 04 Nov`, with that day's total), the plan under `Planned`. A month
 where nothing has a category is one plain list, as before. Forecast entries the bank has
 not reported yet are dimmed once a month has actuals; imported entries show their day, and
 a replaced one its planned amount; one booked in another month shows that month too
@@ -213,6 +217,11 @@ it and the totals stay in place.
 expense the dialog also offers to remember the payee: the match text starts as the whole
 payee and can be shortened, and with the box ticked every uncategorised expense from that
 payee, in every month, is filed too. The box starts unticked: only this one is filed.
+Afterwards the cursor stays in the list it was in, on the next entry, rather than following
+the expense to its category, so a run of uncategorised expenses is worked through top to
+bottom. `space` marks an expense (`✓`) and moves down; with marks set, `c` files every
+marked expense in one category (no payee rule, as they can come from different payees).
+The pane title counts the marks, `esc` clears them, and changing month drops them.
 
 **Rename a category** (`e` on its header). The new name replaces the old in the category list,
 in every payee rule and in every month on disk; naming it after an existing category merges
