@@ -65,16 +65,18 @@ func (m Model) screenBindings() (string, []binding) {
 				bind("esc", "esc", "back to the preview", "back"),
 			}
 		case stagePreview:
+			var restore []binding
+			if m.imp.deletedCount() > 0 {
+				restore = append(restore, bind("r", "r", "import again the rows you deleted", "bring back deleted"))
+			}
 			if m.imp.newCount() == 0 {
-				return "import", []binding{
+				return "import", append(restore,
 					bind("esc", "esc", "back to the files", "back"),
-					bind("enter", "enter", "close", "close"),
-				}
+					bind("enter", "enter", "close", "close"))
 			}
-			return "import", []binding{
+			return "import", append(restore,
 				bind("enter", "enter", "import", "import"),
-				bind("esc", "esc", "back to the files", "back"),
-			}
+				bind("esc", "esc", "back to the files", "back"))
 		}
 		return "import", []binding{
 			bind("enter", "enter", "open the folder or file", "open"),

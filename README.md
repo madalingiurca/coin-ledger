@@ -37,7 +37,8 @@ statement, one per currency), press `I` and pick the file. The preview shows wha
 into which month and whether it matches the bank's balance; nothing is written until
 you confirm. Rows that look like something you planned, such as the mortgage, can
 replace the plan, and an early salary can count for next month with `n`. Importing
-the same file twice adds nothing.
+the same file twice adds nothing, and rows you deleted stay out unless you press `r`
+in the preview to bring them back.
 
 **Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows, in
 every month and on every later import. Money moving between your own ING and Revolut

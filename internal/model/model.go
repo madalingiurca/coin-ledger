@@ -468,6 +468,11 @@ func (m *Month) SetCategory(id, category string) error {
 // HasKey reports whether a bank row is already in the month, or was imported
 // once and then deleted.
 func (m *Month) HasKey(key string) bool {
+	return m.Contains(key) || m.Deleted(key)
+}
+
+// Contains reports whether a bank row is one of the month's entries.
+func (m *Month) Contains(key string) bool {
 	if key == "" {
 		return false
 	}
@@ -478,7 +483,21 @@ func (m *Month) HasKey(key string) bool {
 			}
 		}
 	}
-	return slices.Contains(m.SkippedKeys, key)
+	return false
+}
+
+// Deleted reports whether a bank row was imported into the month and then
+// deleted, so imports leave it out.
+func (m *Month) Deleted(key string) bool {
+	return key != "" && slices.Contains(m.SkippedKeys, key)
+}
+
+// Undelete forgets that a bank row was deleted, so it can be imported again.
+func (m *Month) Undelete(key string) {
+	m.SkippedKeys = slices.DeleteFunc(m.SkippedKeys, func(k string) bool { return k == key })
+	if len(m.SkippedKeys) == 0 {
+		m.SkippedKeys = nil
+	}
 }
 
 // AddImported appends a bank transaction as an actual entry. It reports false
@@ -623,17 +642,10 @@ func (m *Month) Take(kind Kind, id string) (Entry, error) {
 // already in the month is refused; one deleted here before is welcome back.
 func (m *Month) Put(kind Kind, e Entry) (string, error) {
 	if e.Key != "" {
-		for _, k := range []Kind{Income, Expense} {
-			for _, have := range m.Entries(k) {
-				if have.Key == e.Key {
-					return "", fmt.Errorf("%s is already in %s", e.Label, m.Key.Label())
-				}
-			}
+		if m.Contains(e.Key) {
+			return "", fmt.Errorf("%s is already in %s", e.Label, m.Key.Label())
 		}
-		m.SkippedKeys = slices.DeleteFunc(m.SkippedKeys, func(k string) bool { return k == e.Key })
-		if len(m.SkippedKeys) == 0 {
-			m.SkippedKeys = nil
-		}
+		m.Undelete(e.Key)
 	}
 	e.ID = m.newID()
 	*m.list(kind) = append(*m.list(kind), e)

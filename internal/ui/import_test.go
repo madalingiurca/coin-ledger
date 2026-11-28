@@ -242,3 +242,120 @@ func TestStateFileIsNotAMonth(t *testing.T) {
 		t.Errorf("damaged state = %+v", st)
 	}
 }
+
+// emptyMonth deletes every entry of a saved month the way the month view
+// does, so its bank rows are remembered as deleted.
+func emptyMonth(t *testing.T, s *store.Store, k model.Key) {
+	t.Helper()
+	mo, err := s.Load(k)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, kind := range []model.Kind{model.Income, model.Expense} {
+		for len(mo.Entries(kind)) > 0 {
+			if err := mo.Remove(kind, mo.Entries(kind)[0].ID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	saveMonth(t, s, mo)
+}
+
+// Emptying a month and importing its statement again says the rows were
+// deleted rather than "already imported", and r brings them back.
+func TestImportBringsBackDeletedRows(t *testing.T) {
+	importHome(t)
+	s := testStore(t)
+	october := model.Key{Year: 2026, Month: time.October}
+
+	m := press(t, app(t, s), "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter", "enter")
+	mustContain(t, plain(m), "Imported 10 entries into 1 month")
+	emptyMonth(t, s, october)
+
+	m = press(t, m, "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter")
+	screen := plain(m)
+	mustContain(t, screen, "nothing new · 10 rows you deleted",
+		"10 rows in this file were deleted after an earlier import", "import them again")
+	if strings.Contains(screen, "already imported") || strings.Contains(screen, "already in your budget") {
+		t.Errorf("deleted rows are called imported:\n%s", screen)
+	}
+	checkWidth(t, m)
+
+	// Enter without r leaves them out.
+	m = press(t, m, "enter")
+	if got, _ := s.Load(october); len(got.Income)+len(got.Expenses) != 0 {
+		t.Fatalf("enter imported deleted rows: %d entries", len(got.Income)+len(got.Expenses))
+	}
+
+	m = press(t, m, "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter", "r")
+	screen = plain(m)
+	mustContain(t, screen, "income · 2", "expenses · 7", "10 deleted before, brought back")
+	if strings.Contains(screen, "Press r") {
+		t.Errorf("r is still offered:\n%s", screen)
+	}
+	m = press(t, m, "enter")
+	mustContain(t, plain(m), "Imported 10 entries into 1 month")
+	got, _ := s.Load(october)
+	if len(got.Income)+len(got.Expenses) != 10 || got.SkippedKeys != nil {
+		t.Fatalf("entries %d, skipped keys %v", len(got.Income)+len(got.Expenses), got.SkippedKeys)
+	}
+
+	// Imported again, they are plain duplicates.
+	m = press(t, m, "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter")
+	mustContain(t, plain(m), "nothing new · 10 rows already imported", "already in your budget")
+}
+
+// One deleted row among imported ones is counted apart, and a row brought
+// back can replace a forecast it matches.
+func TestImportBringsBackADeletedRowOntoItsPlan(t *testing.T) {
+	importHome(t)
+	s := testStore(t)
+	october := model.Key{Year: 2026, Month: time.October}
+
+	m := press(t, app(t, s), "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter", "enter")
+	mo, _ := s.Load(october)
+	for _, e := range mo.Expenses {
+		if e.Label == "Rata Credit" {
+			mo.Remove(model.Expense, e.ID)
+		}
+	}
+	mo.Add(model.Expense, "Mortgage", money.Amount(215470), true)
+	saveMonth(t, s, mo)
+
+	m = press(t, m, "I")
+	m = press(t, pick(t, m, "ing.csv"), "enter")
+	mustContain(t, plain(m), "nothing new · 9 rows already imported · 1 row you deleted",
+		"1 row in this file was deleted after an earlier import")
+
+	m = press(t, m, "r")
+	mustContain(t, plain(m), "expenses · 1", "1 deleted before, brought back", "1 looks like a forecast entry")
+	m = press(t, m, "enter")
+	if m.imp == nil || m.imp.stage != stageMatches {
+		t.Fatal("the brought-back row skipped the forecast check")
+	}
+	mustContain(t, plain(m), "Mortgage", "Rata Credit · same amount", "replace")
+	m = press(t, m, "enter")
+	mustContain(t, plain(m), "1 forecast replaced")
+
+	got, _ := s.Load(october)
+	if got.SkippedKeys != nil {
+		t.Errorf("skipped keys = %v", got.SkippedKeys)
+	}
+	n := 0
+	for _, e := range got.Expenses {
+		if e.Label == "Mortgage" {
+			n++
+			if e.IsForecast() || e.Planned != money.Amount(215470) {
+				t.Errorf("mortgage not replaced: %+v", e)
+			}
+		}
+	}
+	if n != 1 || len(got.Income)+len(got.Expenses) != 10 {
+		t.Errorf("mortgages %d, entries %d", n, len(got.Income)+len(got.Expenses))
+	}
+}

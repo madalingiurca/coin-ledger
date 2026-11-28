@@ -360,3 +360,24 @@ func TestReplacedSalaryCountsOnce(t *testing.T) {
 		t.Errorf("income = %v, want 15.371,00", got)
 	}
 }
+
+// A deleted bank row can be asked back: Undelete forgets the deletion and the
+// row imports again.
+func TestUndeleteLetsABankRowBackIn(t *testing.T) {
+	m := New(Key{2026, time.October})
+	id, _ := m.AddImported(Expense, bankRow("k1", "Bolt", lei(20), ""))
+	m.Remove(Expense, id)
+	if m.Contains("k1") || !m.Deleted("k1") {
+		t.Fatalf("contains %v, deleted %v", m.Contains("k1"), m.Deleted("k1"))
+	}
+	m.Undelete("k1")
+	if m.Deleted("k1") || m.SkippedKeys != nil {
+		t.Fatalf("skipped keys = %v", m.SkippedKeys)
+	}
+	if _, added := m.AddImported(Expense, bankRow("k1", "Bolt", lei(20), "")); !added {
+		t.Fatal("the undeleted row was refused")
+	}
+	if !m.Contains("k1") || m.Deleted("k1") {
+		t.Error("the row is not back as an entry")
+	}
+}

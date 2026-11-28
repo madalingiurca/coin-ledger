@@ -72,7 +72,7 @@ reads as before.
 | `planned` | The forecast amount an actual replaced, kept so the difference shows. |
 | `reimburses` | On a refund (income): the expenses it pays back, each as `{ "month": "2026-10", "id": "c41f77", "amount": 282.24 }`. |
 | `reimbursed_by` | On an expense: the refunds that paid it back, in the same form, pointing the other way. |
-| `skipped_keys` | Bank rows imported and then deleted, so re-importing does not bring them back. |
+| `skipped_keys` | Bank rows imported and then deleted, so re-importing does not bring them back unless asked (`r` in the import preview). |
 
 ### Categories file
 
@@ -163,7 +163,9 @@ or import, so browsing ahead leaves no files.
 2. The bank is detected from the file's contents. The preview shows, per month, the income
    and expenses to add, how many the rules file, how many are uncategorised, transfers,
    rows already imported, and whether the file matches the bank's own balance (ING: opening
-   + transactions = closing; Revolut: the running balance on every row).
+   + transactions = closing; Revolut: the running balance on every row). Rows that were
+   imported and then deleted are counted apart and left out; `r` brings them back, placed
+   and matched against the plan like new rows.
 3. If rows look like forecast entries, a step lists each pair to replace or keep both. In
    that step `n` counts a row for the month after its date (a salary paid early): it moves
    there, is matched against that month's plan instead, and its payee gets a next-month
@@ -325,6 +327,8 @@ and moves the binary into place. Tags stay local until pushed.
 
 - **Importing the same file twice** adds nothing; an overlapping export adds only the new
   rows. Two identical rows in one file (same shop, same amount, same day) stay two.
+- **Emptying a month and importing its statement again** adds nothing at first: every
+  row was deleted, and the preview says so. `r` imports them again.
 - **A statement that does not reconcile** is flagged in red in the preview; you can still
   import it.
 - **Damaged month or categories file**: shown, never overwritten, skipped by imports and
