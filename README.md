@@ -5,9 +5,17 @@ to spend, import your ING and Revolut statements as the month goes, and see what
 you have spent against the plan and what is projected to be left.
 
 ```bash
-go build -o ~/bin/budget .
+just install   # tag the next version and put budget in ~/.local/bin
 budget
 ```
+
+[just](https://github.com/casey/just) (`brew install just`) runs the recipes in the
+justfile: `just build` builds `./budget`, `just run` runs it from source, `just test`
+and `just check` test it, and `just` lists them all. `just install` bumps the patch
+version (`just install minor` or `major` for the others), tags it, and installs the
+binary into `~/.local/bin`, or `$BUDGET_INSTALL_DIR` when set. It warns and asks
+first when you are not on `main` or have uncommitted changes. The version shows at
+the bottom of the `?` menu.
 
 It takes no arguments and no flags. Everything happens on screen:
 

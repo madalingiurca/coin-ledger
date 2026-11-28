@@ -16,7 +16,12 @@ import (
 	"github.com/madalingiurca/budget/internal/ui"
 )
 
+// version is set at build time with -ldflags "-X main.version=v1.2.3"; the
+// justfile does this from the latest git tag.
+var version = "dev"
+
 func main() {
+	ui.Version = version
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "budget:", err)
 		os.Exit(1)

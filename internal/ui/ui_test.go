@@ -421,7 +421,7 @@ func TestKeybindingsMenu(t *testing.T) {
 	m = press(t, next.(Model), "?")
 	screen := plain(m)
 	mustContain(t, screen, "Keybindings: month", "add to the section the cursor is in",
-		"previous month", "Global", "Months are saved in", "enter run · esc close")
+		"previous month", "Global", "Months are saved in", "budget dev", "enter run · esc close")
 	checkWidth(t, m)
 
 	// Typing narrows the list; enter runs what is left.
