@@ -306,3 +306,18 @@ func TestINGTranzactieLa(t *testing.T) {
 		t.Errorf("the card top-up to Revolut is filed under %q", c)
 	}
 }
+
+// The last page lists card payments that are still pending under a header of
+// its own. They are not booked, so they are reported as skipped, and their
+// amount column must not be read against the previous Debit/Credit header.
+func TestINGSkipsPendingCardPayments(t *testing.T) {
+	st := load(t, "ing-nov.csv")
+	for _, tx := range st.Txns {
+		if tx.Label == "EXEMPLU CAFE" || tx.Label == "Bolt" {
+			t.Errorf("pending payment imported: %+v", tx)
+		}
+	}
+	if got := strings.Join(st.Skipped, "; "); got != "2 card payments are pending (52,50 lei), not booked yet" {
+		t.Errorf("skipped = %q", got)
+	}
+}

@@ -29,6 +29,41 @@ type Rules struct {
 	Categories []string `json:"categories"`
 	Rules      []Rule   `json:"rules"`
 	Links      []Link   `json:"links"`
+	// NextMonth lists payees whose late rows count for the month after.
+	NextMonth []Shift `json:"next_month,omitempty"`
+	// PaidBack lists the categories whose expenses are expected to be paid
+	// back, so the ones no refund is linked to yet show as open.
+	PaidBack []string `json:"paid_back,omitempty"`
+}
+
+// IsPaidBack reports whether expenses in category are expected to come back.
+func (r *Rules) IsPaidBack(category string) bool {
+	return category != "" && slices.Contains(r.PaidBack, category)
+}
+
+// TogglePaidBack flips whether a category's expenses are expected to be paid
+// back and reports the new state. Transfers never are.
+func (r *Rules) TogglePaidBack(category string) bool {
+	if category == "" || category == Transfers {
+		return false
+	}
+	if r.IsPaidBack(category) {
+		r.PaidBack = slices.DeleteFunc(r.PaidBack, func(c string) bool { return c == category })
+		if len(r.PaidBack) == 0 {
+			r.PaidBack = nil
+		}
+		return false
+	}
+	r.PaidBack = append(r.PaidBack, category)
+	return true
+}
+
+// Shift remembers that rows from a payee booked on FromDay or later belong to
+// the next month: a salary paid early because the 1st falls on a weekend or a
+// holiday.
+type Shift struct {
+	Match   string `json:"match"`
+	FromDay int    `json:"from_day"`
 }
 
 // NewRules returns the rules a fresh install starts with: the Transfers
@@ -151,6 +186,10 @@ func (r *Rules) RenameCategory(from, to string) bool {
 			r.Rules[i].Category, changed = to, true
 		}
 	}
+	if r.IsPaidBack(from) {
+		r.PaidBack = slices.DeleteFunc(r.PaidBack, func(c string) bool { return c == from || c == to })
+		r.PaidBack = append(r.PaidBack, to)
+	}
 	return changed
 }
 
@@ -261,4 +300,55 @@ func (r *Rules) SetLinkIfNew(payee, label string) bool {
 	}
 	r.SetLink(payee, label)
 	return true
+}
+
+// CountsForNextMonth reports whether a row from payee booked on day of its
+// month belongs to the month after.
+func (r *Rules) CountsForNextMonth(payee string, day int) bool {
+	payee = NormalizePayee(payee)
+	if payee == "" {
+		return false
+	}
+	for _, s := range r.NextMonth {
+		if s.Match != "" && strings.Contains(payee, s.Match) && day >= s.FromDay {
+			return true
+		}
+	}
+	return false
+}
+
+// SetNextMonth remembers that rows from payee booked on day or later count for
+// the next month. An earlier day already remembered is kept, so the rule
+// widens to the earliest early payment seen. It reports whether anything
+// changed.
+func (r *Rules) SetNextMonth(payee string, day int) bool {
+	match := NormalizePayee(payee)
+	if match == "" || day < 1 {
+		return false
+	}
+	for i := range r.NextMonth {
+		if r.NextMonth[i].Match == match {
+			if r.NextMonth[i].FromDay <= day {
+				return false
+			}
+			r.NextMonth[i].FromDay = day
+			return true
+		}
+	}
+	r.NextMonth = append(r.NextMonth, Shift{Match: match, FromDay: day})
+	return true
+}
+
+// DropNextMonth forgets every rule that moves payee's rows to the next month
+// and reports whether there was one.
+func (r *Rules) DropNextMonth(payee string) bool {
+	payee = NormalizePayee(payee)
+	n := len(r.NextMonth)
+	r.NextMonth = slices.DeleteFunc(r.NextMonth, func(s Shift) bool {
+		return s.Match != "" && strings.Contains(payee, s.Match)
+	})
+	if len(r.NextMonth) == 0 {
+		r.NextMonth = nil
+	}
+	return len(r.NextMonth) != n
 }

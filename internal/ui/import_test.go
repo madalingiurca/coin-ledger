@@ -61,7 +61,7 @@ func TestImportBrowserStartsInDownloads(t *testing.T) {
 		t.Fatalf("screen %v, dir %q", m.screen, m.imp.dir)
 	}
 	screen := plain(m)
-	mustContain(t, screen, "import", "~/Downloads", "old statements/", "revolut.csv", "ing.csv")
+	mustContain(t, screen, "[4] Import", "~/Downloads", "old statements/", "revolut.csv", "ing.csv")
 	for _, unwanted := range []string{"notes.txt", ".hidden.csv"} {
 		if strings.Contains(screen, unwanted) {
 			t.Errorf("%q is listed:\n%s", unwanted, screen)
@@ -133,7 +133,7 @@ func TestImportPreviewAndCommit(t *testing.T) {
 		t.Fatalf("no preview: %v", m.imp.pickErr)
 	}
 	screen := plain(m)
-	mustContain(t, screen, "import ING", "10 transactions", "Matches the bank's balance",
+	mustContain(t, screen, "Import ING", "10 transactions", "Matches the bank's balance",
 		"OCTOBER 2026", "income · 2", "12.725,00 lei", "expenses · 7",
 		"1 categorised", "6 uncategorised", "1 transfer, not counted", "Nothing is saved")
 	checkWidth(t, m)
@@ -194,7 +194,7 @@ func TestImportPreviewBackGoesToTheBrowser(t *testing.T) {
 	m := press(t, app(t, s), "I")
 	m = pick(t, m, "revolut.csv")
 	m = press(t, m, "enter")
-	mustContain(t, plain(m), "import Revolut", "Left out: 1 row is pending", "1 row is in EUR")
+	mustContain(t, plain(m), "Import Revolut", "Left out: 1 row is pending", "1 row is in EUR")
 	m = press(t, m, "esc")
 	if m.imp == nil || m.imp.stage != stageBrowse {
 		t.Fatal("esc in the preview did not go back to the browser")

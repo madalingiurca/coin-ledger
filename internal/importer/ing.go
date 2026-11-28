@@ -20,6 +20,11 @@ import (
 // and address, the column headers and two signature rows; the last page adds
 // the opening and closing balance. Pages differ in how many columns they
 // have, so the debit and credit columns are found again at every header.
+//
+// From November 2026 the last page also lists the card payments that are
+// still pending ("tranzactii in asteptare") under a header of their own:
+// Data, Beneficiar, Valoare tranzactie. They are not booked yet and come
+// back as ordinary rows in a later statement, so they are not imported.
 
 var ingDate = regexp.MustCompile(`^(\d{1,2}) (\p{L}+) (\d{4})$`)
 
@@ -73,6 +78,9 @@ func parseING(data []byte) (Statement, error) {
 		creditCol         = -1
 		opening, closing  money.Amount
 		hasOpen, hasClose bool
+		pending           bool // inside the pending card payments table
+		pendingRows       int
+		pendingSum        money.Amount
 	)
 	cell := func(rec []string, i int) string {
 		if i < len(rec) {
@@ -88,6 +96,13 @@ func parseING(data []byte) (Statement, error) {
 		// Column header: where debit and credit sit on this page.
 		if d, c := index(rec, "Debit"), index(rec, "Credit"); d >= 0 && c > d {
 			debitCol, creditCol = d, c
+			pending = false
+			continue
+		}
+
+		// Header of the pending card payments table.
+		if index(rec, "Beneficiar") >= 0 && hasPrefix(rec, "Valoare tranzac") {
+			pending, cur = true, nil
 			continue
 		}
 
@@ -106,6 +121,15 @@ func parseING(data []byte) (Statement, error) {
 		}
 
 		// A new transaction.
+		if m := ingDate.FindStringSubmatch(first); m != nil && pending {
+			if v, ok, err := lastAmount(rec[1:]); err != nil {
+				return Statement{}, fmt.Errorf("ING line %d: %w", line, err)
+			} else if ok {
+				pendingSum += v
+			}
+			pendingRows++
+			continue
+		}
 		if m := ingDate.FindStringSubmatch(first); m != nil {
 			date, err := ingDateOf(m)
 			if err != nil {
@@ -175,6 +199,10 @@ func parseING(data []byte) (Statement, error) {
 
 	if len(rows) == 0 {
 		return Statement{}, fmt.Errorf("the ING file has no transactions")
+	}
+	if pendingRows > 0 {
+		st.Skipped = append(st.Skipped, fmt.Sprintf("%s pending (%s), not booked yet",
+			plural(pendingRows, "card payment is", "card payments are"), pendingSum.Lei()))
 	}
 
 	keys := newKeyer(model.SourceING)
@@ -344,6 +372,27 @@ func index(rec []string, want string) int {
 		}
 	}
 	return -1
+}
+
+// hasPrefix reports whether any cell starts with prefix.
+func hasPrefix(rec []string, prefix string) bool {
+	for _, c := range rec {
+		if strings.HasPrefix(strings.TrimSpace(c), prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// lastAmount reads the rightmost filled-in cell as an amount.
+func lastAmount(rec []string) (money.Amount, bool, error) {
+	for i := len(rec) - 1; i >= 0; i-- {
+		if c := strings.TrimSpace(rec[i]); c != "" {
+			v, err := parseDecimal(c, ',')
+			return v, err == nil, err
+		}
+	}
+	return 0, false, nil
 }
 
 func firstAmount(rec []string) (money.Amount, bool, error) {

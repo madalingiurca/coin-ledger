@@ -256,3 +256,59 @@ func TestSeedFromMonthWithNoRecurring(t *testing.T) {
 		t.Errorf("seeded month should be empty, has %d entries", got.Count())
 	}
 }
+
+func TestMovingAnEntryBetweenMonths(t *testing.T) {
+	nov := New(Key{2026, time.November})
+	dec := New(Key{2026, time.December})
+	id, _ := nov.AddImported(Income, Imported{Label: "ACME SRL", Amount: money.FromLei(15342), Date: "2026-11-27",
+		Payee: "ACME SRL", Source: SourceING, Key: "k1"})
+
+	e, err := nov.Take(Income, id)
+	if err != nil || len(nov.Income) != 0 {
+		t.Fatalf("take: %v, %d left", err, len(nov.Income))
+	}
+	if nov.HasKey("k1") {
+		t.Error("a moved row is remembered as deleted in the month it left")
+	}
+	dec.SkippedKeys = []string{"k1"}
+	newID, err := dec.Put(Income, e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, ok := dec.Find(Income, newID)
+	if !ok || got.Date != "2026-11-27" || got.Key != "k1" || got.Amount != money.FromLei(15342) {
+		t.Errorf("moved = %+v", got)
+	}
+	if dec.SkippedKeys != nil {
+		t.Errorf("skipped keys = %v", dec.SkippedKeys)
+	}
+	if _, err := dec.Put(Income, e); err == nil {
+		t.Error("the same bank row went into a month twice")
+	}
+	if _, err := nov.Take(Income, id); err == nil {
+		t.Error("took an entry that is gone")
+	}
+}
+
+func TestTakingAReplacedForecastLeavesThePlan(t *testing.T) {
+	oct := New(Key{2026, time.October})
+	id := oct.Add(Income, "Salary", money.FromLei(15000), true)
+	if err := oct.ReplaceForecast(Income, id, Imported{Label: "ACME SRL", Amount: money.FromLei(15342),
+		Date: "2026-10-30", Payee: "ACME SRL", Source: SourceING, Key: "k1"}); err != nil {
+		t.Fatal(err)
+	}
+	row, err := oct.Take(Income, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Recurring || row.Planned != 0 || row.Key != "k1" || row.Amount != money.FromLei(15342) || row.Date != "2026-10-30" {
+		t.Errorf("row = %+v", row)
+	}
+	plan, ok := oct.Find(Income, id)
+	if !ok || !plan.IsForecast() || plan.Amount != money.FromLei(15000) || !plan.Recurring || plan.Label != "Salary" || plan.Date != "" {
+		t.Errorf("plan = %+v", plan)
+	}
+	if oct.HasKey("k1") {
+		t.Error("the row is still in October")
+	}
+}

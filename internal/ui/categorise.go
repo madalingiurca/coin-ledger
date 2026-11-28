@@ -21,6 +21,9 @@ const (
 // (entryID empty), where the only possible outcome is a rule.
 type catState struct {
 	entryID string
+	// ids, when set, are several expenses marked on the month screen to be
+	// filed together. There is no payee to remember then.
+	ids []string
 	// elsewhere is the month the entry lives in when that is not the month on
 	// screen, as when filing a payee's transactions one by one.
 	elsewhere *model.Key
@@ -168,6 +171,44 @@ func (m *Model) openCategorise(e model.Entry) {
 	m.cat.label = e.Label
 }
 
+// openCategoriseMany opens the dialog for the marked expenses.
+func (m *Model) openCategoriseMany(ids []string) {
+	current := ""
+	if e, ok := m.dash.month.Find(model.Expense, ids[0]); ok {
+		current = e.Category
+	}
+	for _, id := range ids[1:] {
+		if e, ok := m.dash.month.Find(model.Expense, id); ok && e.Category != current {
+			current = ""
+		}
+	}
+	m.cat = newCat(m.theme, "Categorise "+plural(len(ids), "marked expense", "marked expenses"), ids[0], "", current, m.categoryNames())
+	m.cat.ids = ids
+}
+
+// applyCategoryMany files every marked expense in one category and clears
+// the marks.
+func (m *Model) applyCategoryMany(ids []string, category string) {
+	category = m.useCategory(category)
+	shown := category
+	if shown == "" {
+		shown = "Uncategorised"
+	}
+	here := m.dash.spot()
+	for _, id := range ids {
+		if err := m.dash.month.SetCategory(id, category); err != nil {
+			m.setError(err)
+			return
+		}
+	}
+	if !m.save() {
+		return
+	}
+	m.dash.marked = nil
+	m.returnTo(here)
+	m.setStatus("%s → %s", plural(len(ids), "expense", "expenses"), shown)
+}
+
 func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	c := m.cat
 	switch msg.String() {
@@ -205,6 +246,10 @@ func (m Model) catKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.cat = nil
+		if len(c.ids) > 0 {
+			m.applyCategoryMany(c.ids, category)
+			return m, nil
+		}
 		m.applyCategory(c.entryID, c.elsewhere, c.label, category, match)
 		return m, nil
 	}
@@ -239,6 +284,7 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 	if label == "" {
 		label = match
 	}
+	var here spot
 	switch {
 	case entryID != "" && elsewhere != nil:
 		if err := m.store.SetCategory(*elsewhere, entryID, category); err != nil {
@@ -256,6 +302,9 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 		if !ok {
 			return
 		}
+		// Stay in the list being worked through rather than following the
+		// entry to its new category.
+		here = m.dash.spot()
 		label = e.Label
 		if err := m.dash.month.SetCategory(entryID, category); err != nil {
 			m.setError(err)
@@ -264,7 +313,7 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 		if !m.save() {
 			return
 		}
-		m.selectEntry(model.Expense, entryID)
+		m.returnTo(here)
 	}
 	if match == "" {
 		m.setStatus("%s → %s", label, shown)
@@ -293,8 +342,8 @@ func (m *Model) applyCategory(entryID string, elsewhere *model.Key, label, categ
 	key := m.dash.key
 	if m.dash.onDisk {
 		m.openMonth(key)
-		if entryID != "" {
-			m.selectEntry(model.Expense, entryID)
+		if entryID != "" && elsewhere == nil {
+			m.returnTo(here)
 		}
 	}
 	if m.screen == screenPayees {
@@ -328,7 +377,7 @@ func plural(n int, one, many string) string {
 const catVisible = 8
 
 func (c *catState) view(t Theme, cw int) string {
-	lines := []string{t.Title.Render(truncate(c.title, cw)), ""}
+	var lines []string
 
 	// The list scrolls around the cursor; the "new" row is its last line.
 	total := len(c.options) + 1
@@ -345,7 +394,7 @@ func (c *catState) view(t Theme, cw int) string {
 		}
 		switch {
 		case i == len(c.options):
-			c.newName.SetWidth(max(10, cw-6))
+			c.newName.SetWidth(max(10, cw-7))
 			if on && c.focus == catList {
 				lines = append(lines, caret+style.Render("+ ")+c.newName.View())
 			} else if v := strings.TrimSpace(c.newName.Value()); v != "" {
@@ -364,7 +413,7 @@ func (c *catState) view(t Theme, cw int) string {
 	}
 
 	if c.hasRule() {
-		c.match.SetWidth(max(10, cw-11))
+		c.match.SetWidth(max(10, cw-12))
 		caret, style := "  ", t.Field
 		if c.focus == catMatch {
 			caret, style = "› ", t.FieldOn
@@ -388,10 +437,13 @@ func (c *catState) view(t Theme, cw int) string {
 	if c.err != "" {
 		lines = append(lines, "", t.Danger.Render(truncate(c.err, cw)))
 	}
-	keys := "↑↓ choose · enter save · esc cancel"
-	if c.hasRule() {
-		keys = "↑↓ choose · tab next · enter save · esc cancel"
-	}
-	lines = append(lines, "", t.Footer.Render(truncate(keys, cw)))
 	return strings.Join(lines, "\n")
+}
+
+// hints are the dialog's keys, shown in its bottom border.
+func (c *catState) hints() string {
+	if c.hasRule() {
+		return "↑↓ choose · tab next · enter save · esc cancel"
+	}
+	return "↑↓ choose · enter save · esc cancel"
 }

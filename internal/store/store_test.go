@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("totals differ: %s / %s", got.TotalIncome(), got.Left())
 	}
 	for i, e := range got.Entries(model.Expense) {
-		if e != want.Entries(model.Expense)[i] {
+		if !reflect.DeepEqual(e, want.Entries(model.Expense)[i]) {
 			t.Errorf("expense %d = %+v, want %+v", i, e, want.Entries(model.Expense)[i])
 		}
 	}
@@ -401,5 +402,41 @@ func TestFileShape(t *testing.T) {
 	}
 	if string(raw["income"]) != "[]" {
 		t.Errorf("empty income marshalled as %s, want []", raw["income"])
+	}
+}
+
+// A link between months is written on both sides and read back intact.
+func TestRefundLinksRoundTrip(t *testing.T) {
+	s := newStore(t)
+	nov := model.New(model.Key{Year: 2026, Month: time.November})
+	dec := model.New(model.Key{Year: 2026, Month: time.December})
+	pizza := nov.Add(model.Expense, "Pizza", money.FromLei(282), false)
+	refund := dec.Add(model.Income, "Refund", money.FromLei(282), false)
+	if _, err := model.LinkRefund(dec, refund, nov, pizza); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []*model.Month{nov, dec} {
+		if err := s.Save(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+	gotNov, err := s.Load(nov.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gotDec, err := s.Load(dec.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotNov.TotalExpenses() != 0 || gotDec.TotalIncome() != 0 {
+		t.Errorf("reloaded totals: %v / %v", gotNov.TotalExpenses(), gotDec.TotalIncome())
+	}
+	e, _ := gotNov.Find(model.Expense, pizza)
+	if e.LinkedTo(dec.Key, refund) != money.FromLei(282) {
+		t.Errorf("reloaded expense = %+v", e)
+	}
+	data, _ := os.ReadFile(s.Path(dec.Key))
+	if !strings.Contains(string(data), `"reimburses"`) || !strings.Contains(string(data), `"month": "2026-11"`) {
+		t.Errorf("refund file:\n%s", data)
 	}
 }

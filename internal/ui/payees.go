@@ -59,7 +59,7 @@ func (m Model) payeesKey(key string) (tea.Model, tea.Cmd) {
 	}
 	p := &m.payees
 	switch key {
-	case "esc", "u", "left":
+	case "esc", "u", "left", "h":
 		m.screen = screenMonth
 	case "up", "k":
 		p.cursor = max(0, p.cursor-1)
@@ -114,20 +114,22 @@ func (m Model) payeeDetailKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) payeesHints() []hint {
+// payeesTitle names the payees pane, or the payee open in it.
+func (m Model) payeesTitle() string {
 	if d := m.payees.detail; d != nil {
-		return []hint{keyHint("enter", "categorise this one"), keyHint("↑/↓", "move"), keyHint("esc", "back"), keyHint("q", "quit")}
+		return "[3] " + d.label + " · " + plural(len(d.rows), "uncategorised", "uncategorised")
 	}
-	if len(m.payees.rows) == 0 {
-		return []hint{keyHint("esc", "back"), keyHint("q", "quit")}
+	if n := len(m.payees.rows); n > 0 {
+		return "[3] Uncategorised payees · " + plural(n, "payee", "payees")
 	}
-	return []hint{
-		keyHint("enter", "categorise all"),
-		keyHint("→", "one by one"),
-		keyHint("↑/↓", "move"),
-		keyHint("esc", "back"),
-		keyHint("q", "quit"),
+	return "[3] Uncategorised payees"
+}
+
+func (m Model) payeesCounter() string {
+	if d := m.payees.detail; d != nil {
+		return counter(d.cursor, len(d.rows))
 	}
+	return counter(m.payees.cursor, len(m.payees.rows))
 }
 
 func (m Model) payeesView(cw, maxH int) string {
@@ -137,19 +139,13 @@ func (m Model) payeesView(cw, maxH int) string {
 	t := m.theme
 	p := m.payees
 
-	count := ""
-	if n := len(p.rows); n > 0 {
-		count = plural(n, "payee", "payees")
-	}
-	name, right := spread("uncategorised", count, cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right)}
+	var lines []string
 
 	switch {
 	case p.err != nil:
-		return strings.Join(append(lines, "", wrap(t.Danger, cw, p.err.Error())), "\n")
+		return wrap(t.Danger, cw, p.err.Error())
 	case len(p.rows) == 0:
-		return strings.Join(append(lines, "",
-			wrap(t.Muted, cw, "Every imported expense has a category. Payees show up here after an import brings in someone new.")), "\n")
+		return wrap(t.Muted, cw, "Every imported expense has a category. Payees show up here after an import brings in someone new.")
 	}
 
 	amtW := min(amountCol, max(6, cw-4-6))
@@ -164,21 +160,22 @@ func (m Model) payeesView(cw, maxH int) string {
 		head += padLeft("TIMES", timesW)
 	}
 	head += padLeft("TOTAL", amtW)
-	lines = append(lines, "", t.Section.Render(head))
+	lines = append(lines, t.Section.Render(head))
 
 	var body []string
 	for i, r := range p.rows {
-		label := padRight(truncate(r.Label, labelW-1), labelW)
+		label := truncate(r.Label, labelW-1)
 		times := ""
 		if timesW > 0 {
 			times = padLeft(itoa(r.Count), timesW)
 		}
 		amount := padLeft(r.Total.String(), amtW)
+		dots := leader(labelW - lipgloss.Width(label))
 		if i == p.cursor {
-			body = append(body, t.Selected.Bold(true).Render(padRight("› "+label+times+amount, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+dots+times+amount, cw)))
 			continue
 		}
-		body = append(body, t.Label.Render("  "+label)+t.Muted.Render(times)+t.Amount.Render(amount))
+		body = append(body, t.Label.Render("  "+label)+t.Leader.Render(dots)+t.Muted.Render(times)+t.Amount.Render(amount))
 	}
 
 	tail := []string{"", wrap(t.Muted, cw,
@@ -186,7 +183,7 @@ func (m Model) payeesView(cw, maxH int) string {
 			"For a shop that sells several things, press → and file its transactions one by one.")}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, p.cursor, maxH-fixed, cw)
+		body = scrollWindow(body, p.cursor, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	lines = append(lines, tail...)
@@ -196,12 +193,10 @@ func (m Model) payeesView(cw, maxH int) string {
 func (m Model) payeeDetailView(cw, maxH int) string {
 	t := m.theme
 	d := m.payees.detail
-	name, right := spread(d.label, plural(len(d.rows), "uncategorised", "uncategorised"), cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right)}
+	var lines []string
 	if d.err != nil {
-		return strings.Join(append(lines, "", wrap(t.Danger, cw, d.err.Error())), "\n")
+		return wrap(t.Danger, cw, d.err.Error())
 	}
-	lines = append(lines, "")
 
 	amtW := min(amountCol, max(6, cw-4-6))
 	labelW := max(4, cw-2-amtW)
@@ -213,18 +208,19 @@ func (m Model) payeeDetailView(cw, maxH int) string {
 		} else {
 			when = r.Key.Label()
 		}
-		label := padRight(truncate(when, labelW-1), labelW)
-		amount := padLeft(r.Entry.Amount.String(), amtW)
+		label := truncate(when, labelW-1)
+		amount := r.Entry.Amount.String()
+		dots := leader(cw - 2 - lipgloss.Width(label) - lipgloss.Width(amount))
 		if i == d.cursor {
-			body = append(body, t.Selected.Bold(true).Render(padRight("› "+label+amount, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+label+dots+amount, cw)))
 			continue
 		}
-		body = append(body, t.Label.Render("  "+label)+t.Amount.Render(amount))
+		body = append(body, t.Label.Render("  "+label)+t.Leader.Render(dots)+t.Amount.Render(amount))
 	}
 	tail := []string{"", wrap(t.Muted, cw, "Each transaction you file here keeps its own category; nothing is remembered for the payee unless you tick it in the dialog.")}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, d.cursor, maxH-fixed, cw)
+		body = scrollWindow(body, d.cursor, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	lines = append(lines, tail...)

@@ -348,3 +348,15 @@ func TestTypedSalaryCountsBesideBankIncome(t *testing.T) {
 		t.Errorf("income = %v, want 15.241,00", got)
 	}
 }
+
+func TestReplacedSalaryCountsOnce(t *testing.T) {
+	m := New(Key{2026, 11})
+	id := m.Add(Income, "Salary", lei(15357), true)
+	m.AddImported(Income, bankRow("k2", "Friend", lei(29), ""))
+	if err := m.ReplaceForecast(Income, id, bankRow("k1", "Employer", lei(15342), "")); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.TotalIncome(); got != lei(15371) {
+		t.Errorf("income = %v, want 15.371,00", got)
+	}
+}

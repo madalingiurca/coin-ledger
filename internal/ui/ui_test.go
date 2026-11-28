@@ -50,6 +50,8 @@ func keyMsg(k string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "tab":
 		return tea.KeyPressMsg{Code: tea.KeyTab}
+	case "shift+tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}
 	case "backspace":
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "space":
@@ -122,8 +124,8 @@ func mustContain(t *testing.T, screen string, wants ...string) {
 func checkWidth(t *testing.T, m Model) {
 	t.Helper()
 	for i, line := range strings.Split(m.View().Content, "\n") {
-		if w := lipgloss.Width(line); w > testW {
-			t.Errorf("line %d is %d cells wide, terminal is %d:\n%q", i, w, testW, stripANSI(line))
+		if w := lipgloss.Width(line); w > m.width {
+			t.Errorf("line %d is %d cells wide, terminal is %d:\n%q", i, w, m.width, stripANSI(line))
 		}
 	}
 }
@@ -131,7 +133,7 @@ func checkWidth(t *testing.T, m Model) {
 func TestFirstRunIsInviting(t *testing.T) {
 	m := app(t, testStore(t))
 	screen := plain(m)
-	mustContain(t, screen, "budget", model.Today().Label(), "INCOME", "EXPENSES",
+	mustContain(t, screen, "[1] "+model.Today().Label(), "INCOME", "EXPENSES",
 		"nothing here yet", "new month · nothing saved yet", "0,00 lei")
 	checkWidth(t, m)
 }
@@ -330,7 +332,7 @@ func TestNextMonthCarriesRecurringEntries(t *testing.T) {
 	}
 
 	m := app(t, s)
-	m = press(t, m, "right")
+	m = press(t, m, "]")
 
 	screen := plain(m)
 	mustContain(t, screen, this.Next().Label(), "Salary", "Rent",
@@ -350,13 +352,13 @@ func TestNextMonthCarriesRecurringEntries(t *testing.T) {
 	}
 
 	// And going back finds the original month untouched.
-	m = press(t, m, "left")
+	m = press(t, m, "[")
 	mustContain(t, plain(m), this.Label(), "Freelance")
 }
 
 func TestTodayJumpsBack(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "right", "right", "right")
+	m = press(t, m, "]", "n", "]")
 	if m.dash.key != model.Today().Shift(3) {
 		t.Fatalf("landed on %v", m.dash.key)
 	}
@@ -379,12 +381,12 @@ func TestHistoryScreen(t *testing.T) {
 	}
 
 	m := app(t, s)
-	m = press(t, m, "h")
+	m = press(t, m, "H")
 	if m.screen != screenHistory {
 		t.Fatal("h did not open history")
 	}
 	screen := plain(m)
-	mustContain(t, screen, "history", "MONTH", "INCOME", "EXPENSES", "LEFT",
+	mustContain(t, screen, "[2] History", "MONTH", "INCOME", "EXPENSES", "LEFT",
 		"2026-09", "2026-08", "2026-07", "7.750,00", "-1.500,00", "Average left over 3 months")
 	checkWidth(t, m)
 
@@ -401,7 +403,7 @@ func TestHistoryScreen(t *testing.T) {
 
 func TestHistoryWithNothingSaved(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "h")
+	m = press(t, m, "H")
 	mustContain(t, plain(m), "No months saved yet")
 	checkWidth(t, m)
 
@@ -411,17 +413,32 @@ func TestHistoryWithNothingSaved(t *testing.T) {
 	}
 }
 
-func TestHelpOverlay(t *testing.T) {
+func TestKeybindingsMenu(t *testing.T) {
 	m := app(t, testStore(t))
-	m = press(t, m, "?")
+	// Tall enough for the notes under the bindings, which only show when
+	// they cost no binding its row.
+	next, _ := m.Update(tea.WindowSizeMsg{Width: testW, Height: 46})
+	m = press(t, next.(Model), "?")
 	screen := plain(m)
-	mustContain(t, screen, "keys", "add to the section the cursor is in",
-		"previous / next month", "Months are saved in")
+	mustContain(t, screen, "Keybindings: month", "add to the section the cursor is in",
+		"previous month", "Global", "Months are saved in", "enter run · esc close")
 	checkWidth(t, m)
 
-	m = press(t, m, "j") // any key closes it
-	if m.help {
-		t.Error("help should close on the next keypress")
+	// Typing narrows the list; enter runs what is left.
+	m = press(t, m, typing("hist")...)
+	screen = plain(m)
+	mustContain(t, screen, "history of the last 24 months")
+	if strings.Contains(screen, "add to the section") {
+		t.Errorf("the filter kept rows that do not match:\n%s", screen)
+	}
+	m = press(t, m, "enter")
+	if m.menu != nil || m.screen != screenHistory {
+		t.Errorf("enter did not run the binding: menu open %v, screen %d", m.menu != nil, m.screen)
+	}
+
+	m = press(t, m, "?", "esc")
+	if m.menu != nil {
+		t.Error("esc should close the menu")
 	}
 }
 
@@ -498,7 +515,7 @@ func TestDamagedMonthIsShownNotOverwritten(t *testing.T) {
 	}
 
 	// Navigating away still works.
-	m = press(t, m, "right")
+	m = press(t, m, "]")
 	if m.dash.loadErr != nil {
 		t.Error("could not navigate off a damaged month")
 	}
@@ -612,7 +629,7 @@ func TestVeryNarrowTerminal(t *testing.T) {
 		next, _ := m.Update(tea.WindowSizeMsg{Width: size.w, Height: size.h})
 		m = next.(Model)
 
-		for _, screen := range []Model{m, press(t, m, "h"), press(t, m, "?"), press(t, m, "a")} {
+		for _, screen := range []Model{m, press(t, m, "H"), press(t, m, "?"), press(t, m, "a")} {
 			for i, line := range strings.Split(screen.View().Content, "\n") {
 				if w := lipgloss.Width(line); w > size.w {
 					t.Errorf("at %dx%d, line %d is %d cells:\n%q",

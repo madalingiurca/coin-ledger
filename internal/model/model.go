@@ -72,26 +72,32 @@ type Entry struct {
 	Source string `json:"source,omitempty"`
 	// Key identifies the bank row, so importing it twice adds it once.
 	Key string `json:"key,omitempty"`
+	// Reimburses, on income, lists the expenses this refund pays back.
+	Reimburses []Ref `json:"reimburses,omitempty"`
+	// ReimbursedBy, on an expense, lists the refunds that paid it back.
+	ReimbursedBy []Ref `json:"reimbursed_by,omitempty"`
 }
 
 // IsForecast reports whether the entry was typed by hand rather than imported.
 func (e Entry) IsForecast() bool { return e.Source == "" }
 
 // Forecast is the planned part of the entry: its amount while it is still a
-// forecast, or the amount it replaced once an actual took its place.
+// forecast, or the amount it replaced once an actual took its place. What
+// has been reimbursed is not counted.
 func (e Entry) Forecast() money.Amount {
 	if e.IsForecast() {
-		return e.Amount
+		return e.Counted()
 	}
 	return e.Planned
 }
 
-// Actual is what the bank says happened; zero for a forecast.
+// Actual is what the bank says happened, less what has been reimbursed; zero
+// for a forecast.
 func (e Entry) Actual() money.Amount {
 	if e.IsForecast() {
 		return 0
 	}
-	return e.Amount
+	return e.Counted()
 }
 
 // IsTransfer reports whether the entry is excluded from every total.
@@ -251,11 +257,20 @@ func (m *Month) Entries(kind Kind) []Entry { return *m.list(kind) }
 // so there forecast and actual simply add up. Income has no categories to tie
 // anything together either, so what you planned and what arrived add up: a
 // salary you typed counts beside the transfers the bank reports, and a bank
-// row that is the salary replaces it in the import instead. Transfers are
-// left out.
+// row that is the salary replaces it in the import instead, and then only
+// what arrived counts. Transfers are left out, and so is every reimbursement:
+// the part of a refund that pays back an expense, and the part of the expense
+// it paid back.
 func (m *Month) Total(kind Kind) money.Amount {
 	if kind == Income {
-		return m.ForecastTotal(Income) + m.ActualTotal(Income)
+		// A bank row that replaced a plan counts once, for what arrived.
+		var sum money.Amount
+		for _, e := range m.Income {
+			if !e.IsTransfer() {
+				sum += e.Counted()
+			}
+		}
+		return sum
 	}
 	var sum money.Amount
 	for _, c := range m.Categories() {
@@ -526,6 +541,9 @@ func (m *Month) Remove(kind Kind, id string) error {
 	entries := *m.list(kind)
 	for i, e := range entries {
 		if e.ID == id {
+			if e.IsLinked() {
+				return fmt.Errorf("%s is %w; unlink it first", e.Label, ErrLinked)
+			}
 			if e.Key != "" {
 				m.SkippedKeys = append(m.SkippedKeys, e.Key)
 			}
@@ -554,4 +572,77 @@ func (m *Month) newID() string {
 		}
 		return id
 	}
+}
+
+// Clone returns a copy of the month that can be changed without touching m.
+func (m *Month) Clone() *Month {
+	c := *m
+	c.Income = slices.Clone(m.Income)
+	c.Expenses = slices.Clone(m.Expenses)
+	c.SkippedKeys = slices.Clone(m.SkippedKeys)
+	for _, list := range [][]Entry{c.Income, c.Expenses} {
+		for i := range list {
+			list[i].Reimburses = slices.Clone(list[i].Reimburses)
+			list[i].ReimbursedBy = slices.Clone(list[i].ReimbursedBy)
+		}
+	}
+	return &c
+}
+
+// Take removes an entry so it can go into another month. Unlike Remove it
+// does not remember the bank row as deleted: the row lives on elsewhere. A
+// bank row that had replaced a forecast leaves the forecast behind, as it was
+// before the import, and goes on its own.
+func (m *Month) Take(kind Kind, id string) (Entry, error) {
+	entries := *m.list(kind)
+	for i, e := range entries {
+		if e.ID != id {
+			continue
+		}
+		if e.IsLinked() {
+			return Entry{}, fmt.Errorf("%s is %w; unlink it first", e.Label, ErrLinked)
+		}
+		if e.IsForecast() || e.Planned == 0 {
+			*m.list(kind) = append(entries[:i:i], entries[i+1:]...)
+			return e, nil
+		}
+		row := Entry{Label: e.Label, Amount: e.Amount, Date: e.Date, Payee: e.Payee, Source: e.Source, Key: e.Key}
+		if kind == Expense || e.IsTransfer() {
+			row.Category, row.Auto = e.Category, e.Auto
+		}
+		entries[i] = Entry{ID: e.ID, Label: e.Label, Amount: e.Planned, Recurring: e.Recurring, Category: e.Category}
+		if kind == Income && e.IsTransfer() {
+			entries[i].Category = ""
+		}
+		return row, nil
+	}
+	return Entry{}, fmt.Errorf("%s %q: %w", kind, id, ErrNotFound)
+}
+
+// Put adds an entry taken from another month, under a new id. A bank row
+// already in the month is refused; one deleted here before is welcome back.
+func (m *Month) Put(kind Kind, e Entry) (string, error) {
+	if e.Key != "" {
+		for _, k := range []Kind{Income, Expense} {
+			for _, have := range m.Entries(k) {
+				if have.Key == e.Key {
+					return "", fmt.Errorf("%s is already in %s", e.Label, m.Key.Label())
+				}
+			}
+		}
+		m.SkippedKeys = slices.DeleteFunc(m.SkippedKeys, func(k string) bool { return k == e.Key })
+		if len(m.SkippedKeys) == 0 {
+			m.SkippedKeys = nil
+		}
+	}
+	e.ID = m.newID()
+	*m.list(kind) = append(*m.list(kind), e)
+	return e.ID, nil
+}
+
+// AsImported is a bank entry on its way into another month, so that it can
+// replace a forecast there.
+func (e Entry) AsImported() Imported {
+	return Imported{Label: e.Label, Amount: e.Amount, Date: e.Date, Payee: e.Payee,
+		Source: e.Source, Key: e.Key, Category: e.Category, Auto: e.Auto}
 }

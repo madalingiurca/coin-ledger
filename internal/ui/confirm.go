@@ -7,8 +7,7 @@ import (
 	"github.com/madalingiurca/budget/internal/money"
 )
 
-// confirmState is the delete prompt. It lives in the status line rather than a
-// dialog: one question, one keypress.
+// confirmState is the delete prompt: one question, one keypress.
 type confirmState struct {
 	kind   model.Kind
 	id     string
@@ -21,6 +20,12 @@ func (m Model) confirmKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
 	case "y", "Y", "enter":
 		m.confirm = nil
+		if e, ok := m.dash.month.Find(c.kind, c.id); ok && e.IsLinked() {
+			if err := m.unlinkAll(c.kind, e); err != nil {
+				m.setError(err)
+				return m, nil
+			}
+		}
 		if err := m.dash.month.Remove(c.kind, c.id); err != nil {
 			m.setError(err)
 			return m, nil
@@ -37,8 +42,9 @@ func (m Model) confirmKey(key string) (tea.Model, tea.Cmd) {
 
 func (m Model) confirmPrompt(cw int) string {
 	c := m.confirm
-	t := m.theme
-	question := "Delete " + c.label + " (" + c.amount.Lei() + ")?"
-	return t.Danger.Render(truncate(question, cw)) + " " +
-		t.Key.Render("y") + t.Footer.Render(" / ") + t.Key.Render("n")
+	q := wrap(m.theme.Danger, cw, "Delete "+c.label+" ("+c.amount.Lei()+")?")
+	if e, ok := m.dash.month.Find(c.kind, c.id); ok && e.IsLinked() {
+		q += "\n\n" + wrap(m.theme.Muted, cw, "Its reimbursement links go too, and what they paid back counts again.")
+	}
+	return q
 }

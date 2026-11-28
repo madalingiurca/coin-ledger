@@ -36,7 +36,7 @@ func TestImportOffersToReplaceForecastEntries(t *testing.T) {
 		t.Fatalf("stage = %v", m.imp.stage)
 	}
 	screen := plain(m)
-	mustContain(t, screen, "already planned", "2 matches", "Mortgage", "2.154,70", "Rata Credit · same amount",
+	mustContain(t, screen, "Already planned", "2 matches", "Mortgage", "2.154,70", "Rata Credit · same amount",
 		"Rent to Maria", "Maria Ionescu · same amount", "replace")
 	if strings.Contains(screen, "Gym") {
 		t.Errorf("an unmatched forecast is listed:\n%s", screen)
@@ -343,7 +343,7 @@ func TestEntriesAreListedByDay(t *testing.T) {
 			Payee: strings.ToUpper(r.label), Source: model.SourceING, Key: r.label, Category: "Food"})
 	}
 	var got []string
-	for _, row := range (dash{month: mo}).rows() {
+	for _, row := range (dash{month: mo, expanded: map[string]bool{"Food": true}}).rows() {
 		if row.index >= 0 && row.kind == model.Expense {
 			got = append(got, mo.Expenses[row.index].Label)
 		}

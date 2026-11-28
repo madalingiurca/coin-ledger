@@ -14,26 +14,43 @@ It takes no arguments and no flags. Everything happens on screen:
 | Key | |
 |---|---|
 | `a` / `i` / `x` | add (to the section under the cursor / income / expense) |
-| `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` folds it |
+| `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` unfolds or folds it (categories start folded) |
+| `→` / `←` (or `l` / `h`) | unfold a category (again to step into it) / fold the category the cursor is in |
+| `=` / `-` | unfold / fold every category |
 | `d` | delete |
 | `r` | carry the entry into future months (`↻`) |
-| `c` | put an expense in a category, and optionally every expense from its payee |
+| `c` | put an expense in a category, and optionally every expense from its payee; the cursor stays in the list you are working through |
+| `b` | link a refund to the expenses it pays back (or an expense to its refunds); on a category header, expect its expenses to be paid back |
+| `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
+| `tab` / `shift+tab` | next / previous pane: income, To categorise, expenses; each pane keeps the row you left it on |
+| `s` / `S` | next / previous statistics beside the month: by category, by label, largest expenses, by week, income sources, against last month |
 | `u` | payees that still have no category; `→` on one files its transactions one by one |
+| `>` / `<` | move the entry to the next / previous month |
 | `I` | import a bank statement |
-| `←` / `→`, `t` | previous / next month, back to this month |
-| `h` | history |
-| `?` | every key |
+| `[` / `]` (or `p` / `n`), `t` | previous / next month, back to this month |
+| `H` | history |
+| `1`–`4` | jump to month, history, uncategorised payees, import |
+| `?` | every key, filterable; `enter` runs one |
 
 **Import.** Export the statement as CSV (ING: the *Extras de cont* CSV; Revolut: the
 account statement CSV, one per currency account), press `I`, pick the file. The
 preview shows what goes into which month and whether it matches the bank's balance;
 nothing is written until you confirm. Bank rows that look like something you
-planned, such as the mortgage, are offered to replace the planned entry. Importing
-the same file again adds nothing.
+planned, such as the mortgage, are offered to replace the planned entry. A salary
+paid early, on the 27th for the 1st, can be counted for next month with `n`, and
+the payee's late rows go there by themselves from then on. Importing the same file
+again adds nothing.
 
 **Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows,
-in every month and on every later import. Money moving between your own ING and
+in every month and on every later import. Expenses still without a category wait in
+their own To categorise pane, beside the month on a wide terminal. Money moving between your own ING and
 Revolut accounts is filed under Transfers and not counted.
+
+**Reimbursements.** Paid for something you get back later, like a team lunch your
+employer refunds? Press `b` on the refund and tick the expense: neither counts any more,
+in the same month or across months, and a partial refund leaves the difference counted.
+Mark a category as paid back later (`b` on its header) to see which of its expenses are
+still waiting for their money.
 
 Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when set,
 next to `categories.json`. The files are plain and hand-editable; writes are atomic

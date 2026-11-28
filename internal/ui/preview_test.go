@@ -42,7 +42,7 @@ func TestPreview(t *testing.T) {
 
 	show("FORM", press(t, m, "a"))
 	show("DELETE", press(t, m, "down", "d"))
-	show("HISTORY", press(t, m, "h"))
+	show("HISTORY", press(t, m, "H"))
 	show("HELP", press(t, m, "?"))
 
 	// A month with imported entries, categories and a forecast laid under them.
@@ -84,6 +84,9 @@ func TestPreview(t *testing.T) {
 
 	short, _ := c.Update(tea.WindowSizeMsg{Width: 100, Height: 22})
 	show("SCROLLED (22 rows)", press(t, short.(Model), "down", "down", "down", "down", "down", "down", "down", "down"))
+
+	wide, _ := c.Update(tea.WindowSizeMsg{Width: 180, Height: 40})
+	show("WIDE (180 cols)", press(t, wide.(Model), "down", "down", "down", "down"))
 
 	narrow := New(s)
 	narrow.openMonth(base)

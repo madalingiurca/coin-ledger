@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -67,18 +68,32 @@ func TestExpensesAreGroupedByCategory(t *testing.T) {
 
 	m := appOn(t, s, october, testW, testH)
 	screen := plain(m)
+	// Categories start folded: a header and a total each, no entries. The
+	// uncategorised expense has a pane of its own, always open.
 	mustContain(t, screen,
-		"▾ Uncategorised (1)",
-		"▾ Groceries (2)", "400,00 of 1.500,00",
-		"▾ Transfers (1)", "not counted 500,00",
-		"Wed 14 Oct", "Lidl", "spent so far", "425,00 lei",
+		"To categorise", "UNCATEGORISED", "25,00 lei", "Bolt",
+		"▸ Groceries (2)", "400,00 of 1.500,00",
+		"▸ Transfers (1)", "not counted 500,00",
+		"spent so far", "425,00 lei",
 	)
+	if strings.Contains(screen, "Uncategorised (") {
+		t.Errorf("Uncategorised is still a category in the Expenses pane:\n%s", screen)
+	}
+	for _, hidden := range []string{"Lidl"} {
+		if strings.Contains(screen, hidden) {
+			t.Errorf("a folded category shows %q:\n%s", hidden, screen)
+		}
+	}
+
+	m = unfoldAll(m)
+	screen = plain(m)
+	mustContain(t, screen, "▾ Groceries (2)", "▾ Transfers (1)", "Wed 14 Oct", "Lidl", "Bolt")
 	// Projected: groceries count their forecast, Bolt adds, the transfer does not.
 	mustContain(t, screen, "8.475,00 lei")
 	checkWidth(t, m)
 
-	// Uncategorised comes first, Transfers last.
-	if u, g, tr := strings.Index(screen, "Uncategorised"), strings.Index(screen, "Groceries ("), strings.Index(screen, "Transfers"); !(u < g && g < tr) {
+	// The To categorise pane comes first, Transfers last.
+	if u, g, tr := strings.Index(screen, "To categorise"), strings.Index(screen, "Groceries ("), strings.Index(screen, "Transfers"); !(u < g && g < tr) {
 		t.Errorf("category order is wrong:\n%s", screen)
 	}
 }
@@ -95,24 +110,40 @@ func TestFoldingACategory(t *testing.T) {
 	if r, _ := m.dash.current(); !r.header || r.cat != "Groceries" {
 		t.Fatalf("cursor is on %+v, want the Groceries header", r)
 	}
+	if screen := plain(m); strings.Contains(screen, "Lidl") || strings.Contains(screen, "Bolt") || !strings.Contains(screen, "▸ Groceries (1)") {
+		t.Errorf("categories do not start folded:\n%s", screen)
+	}
+
 	m = press(t, m, "enter")
 	screen := plain(m)
-	if strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▸ Groceries (1)") {
-		t.Errorf("Groceries did not fold:\n%s", screen)
+	if !strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▾ Groceries (1)") {
+		t.Errorf("Groceries did not unfold:\n%s", screen)
 	}
-	mustContain(t, screen, "Bolt")
+	if strings.Contains(screen, "Bolt") {
+		t.Errorf("unfolding Groceries unfolded Transport too:\n%s", screen)
+	}
 	if m.form != nil {
 		t.Error("enter on a header opened the edit form")
 	}
 
-	// Folding survives a trip to another month and back.
-	m = press(t, m, "right", "left")
-	if strings.Contains(plain(m), "Lidl") {
-		t.Error("the category unfolded while paging months")
+	// Unfolding survives a trip to another month and back.
+	m = press(t, m, "]", "p")
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Error("the category folded again while paging months")
 	}
 
 	m = press(t, m, "down", "space")
-	mustContain(t, plain(m), "Lidl", "▾ Groceries (1)")
+	if screen := plain(m); strings.Contains(screen, "Lidl") || !strings.Contains(screen, "▸ Groceries (1)") {
+		t.Errorf("space did not fold Groceries back:\n%s", screen)
+	}
+}
+
+// unfoldAll unfolds every expense category of the month on screen.
+func unfoldAll(m Model) Model {
+	for _, c := range m.dash.month.Categories() {
+		m.expanded[c.Name] = true
+	}
+	return m
 }
 
 func TestFormSetsCategoryOnAnExpense(t *testing.T) {
@@ -215,8 +246,10 @@ func TestCategorisingAPayeeFilesItEverywhere(t *testing.T) {
 	if strings.Join(got, "|") != "Transport|Transport|" {
 		t.Errorf("October categories = %q", got)
 	}
-	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k1" {
-		t.Errorf("the cursor left the entry: %+v", e)
+	// Both Bolt rides are filed, so the cursor moves on to Lidl, the next
+	// expense still waiting for a category.
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k3" {
+		t.Errorf("the cursor is not on the next uncategorised entry: %+v", e)
 	}
 	mustContain(t, plain(m), "Bolt → Transport", "2 more entries filed")
 
@@ -252,6 +285,116 @@ func TestCategoriseOnlyThisEntry(t *testing.T) {
 	rules, _ := s.LoadRules()
 	if _, ok := rules.CategoryFor("BOLT"); ok {
 		t.Error("a rule was saved although it was switched off")
+	}
+}
+
+// Working down the uncategorised list, the cursor stays in it after each
+// entry is filed instead of following the entry to its new category.
+func TestCategorisingStaysInTheList(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Bolt", 25, ""))
+	mo.AddImported(model.Expense, bank("k2", "Omv", 300, ""))
+	mo.AddImported(model.Expense, bank("k3", "Ikea", 90, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down") // into the To categorise pane, onto Bolt
+	onKey := func(want string) {
+		t.Helper()
+		if _, e, ok := m.dash.currentEntry(); !ok || e.Key != want {
+			t.Fatalf("cursor on %+v, want %s:\n%s", e, want, plain(m))
+		}
+	}
+	file := func(category string) {
+		t.Helper()
+		m = press(t, m, "c")
+		m = press(t, m, typing(category)...)
+		m = press(t, m, "enter")
+	}
+	onKey("k1")
+	file("Transport")
+	onKey("k2") // the next one, not Bolt under Transport
+	if m.dash.expanded["Transport"] {
+		t.Error("filing unfolded the category the entry went to")
+	}
+
+	m = press(t, m, "down") // the last one: the cursor falls back to the one before
+	file("Home")
+	onKey("k2")
+	file("Car")
+	// Nothing is left to file: the cursor stays on the row it was on.
+	if r, ok := m.dash.current(); !ok || r.index < 0 && !r.header {
+		t.Errorf("cursor on %+v after the list emptied", r)
+	}
+	if strings.Contains(plain(m), "To categorise") {
+		t.Errorf("the To categorise pane outlived its last entry:\n%s", plain(m))
+	}
+}
+
+func TestCategorisingSeveralMarkedExpenses(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Ironic", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Mario s Osteria", 49, ""))
+	mo.AddImported(model.Expense, bank("k3", "Altex", 420, ""))
+	mo.AddImported(model.Expense, bank("k4", "Ironic Bar", 79, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down")           // into the To categorise pane, onto Ironic
+	m = press(t, m, "space", "space") // mark Ironic and Mario, landing on Altex
+	m = press(t, m, "down", "space")  // skip Altex, mark Ironic Bar
+	screen := plain(m)
+	mustContain(t, screen, "To categorise · 3 marked", "✓ Ironic", "✓ Mario s Osteria", "✓ Ironic Bar")
+	if strings.Contains(screen, "✓ Altex") {
+		t.Errorf("Altex was marked:\n%s", screen)
+	}
+	checkWidth(t, m)
+
+	m = press(t, m, "up", "c") // on Altex: c files the marked ones, not this one
+	if m.cat == nil {
+		t.Fatal("c did not open the categorise dialog")
+	}
+	mustContain(t, plain(m), "Categorise 3 marked expenses")
+	if strings.Contains(plain(m), "Match") {
+		t.Error("filing several offers to remember a payee")
+	}
+	m = press(t, m, typing("Eating out")...)
+	m = press(t, m, "enter")
+
+	got := map[string]string{}
+	for _, e := range m.dash.month.Expenses {
+		got[e.Key] = e.Category
+	}
+	if got["k1"] != "Eating out" || got["k2"] != "Eating out" || got["k4"] != "Eating out" || got["k3"] != "" {
+		t.Errorf("categories = %v", got)
+	}
+	screen = plain(m)
+	mustContain(t, screen, "3 expenses → Eating out")
+	if strings.Contains(screen, "marked") || strings.Contains(screen, "✓") {
+		t.Errorf("the marks outlived the filing:\n%s", screen)
+	}
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Key != "k3" {
+		t.Errorf("cursor on %+v, want Altex", e)
+	}
+	saved, _ := s.Load(october)
+	if saved.Expenses[1].Category != "Eating out" {
+		t.Error("the filing was not saved")
+	}
+
+	// esc drops the marks without filing anything.
+	m = press(t, m, "space", "esc")
+	if len(m.dash.markedIDs()) != 0 {
+		t.Error("esc did not clear the marks")
+	}
+
+	// Income cannot be marked.
+	m = press(t, m, "g", "space")
+	if len(m.dash.markedIDs()) != 0 {
+		t.Error("the income placeholder was marked")
 	}
 }
 
@@ -353,7 +496,7 @@ func TestUncategorisedPayeesScreen(t *testing.T) {
 	m := appOn(t, s, october, testW, testH)
 	m = press(t, m, "u")
 	screen := plain(m)
-	mustContain(t, screen, "uncategorised", "2 payees", "Lidl", "400,00", "Bolt", "55,00")
+	mustContain(t, screen, "Uncategorised payees", "2 payees", "Lidl", "400,00", "Bolt", "55,00")
 	for _, unwanted := range []string{"Kaufland", "Rent"} {
 		if strings.Contains(screen, unwanted) {
 			t.Errorf("%q should not be listed:\n%s", unwanted, screen)
@@ -389,7 +532,7 @@ func TestUncategorisedPayeesScreen(t *testing.T) {
 
 	// Back on the month, the change is visible without reopening it.
 	m = press(t, m, "esc")
-	mustContain(t, plain(m), "▾ Transport (1)")
+	mustContain(t, plain(m), "▸ Transport (1)")
 }
 
 func TestUncategorisedPayeesWhenThereAreNone(t *testing.T) {
@@ -426,13 +569,18 @@ func TestLongMonthScrollsWithTheCursor(t *testing.T) {
 		if got := strings.Count(strings.TrimRight(screen, "\n"), "\n") + 1; got > h {
 			t.Fatalf("after %d moves the screen is %d lines tall, terminal has %d", moves, got, h)
 		}
-		mustContain(t, screen, "October 2026", "LEFT", "quit")
-		if !strings.Contains(screen, "› ") {
+		// Salary is the only income row; the 80 shops are the expenses.
+		want := "1 of 1"
+		if m.dash.cursor > 0 {
+			want = counter(m.dash.cursor-1, 80)
+		}
+		mustContain(t, screen, "October 2026", "LEFT", "Keys: ?", want)
+		if _, e, ok := m.dash.currentEntry(); ok && !strings.Contains(screen, e.Label+" ") {
 			t.Fatalf("after %d moves the selected row is off screen:\n%s", moves, screen)
 		}
 		checkWidth(t, m)
 	}
-	mustContain(t, plain(m), "Shop 79", "more")
+	mustContain(t, plain(m), "Shop 79", "80 of 80─")
 
 	// The form still fits under a scrolled list.
 	m = press(t, m, "e")
@@ -477,7 +625,7 @@ func TestDaysAreBucketed(t *testing.T) {
 	}
 	s := testStore(t)
 	saveMonth(t, s, mo)
-	screen := plain(appOn(t, s, october, testW, testH))
+	screen := plain(unfoldAll(appOn(t, s, october, testW, testH)))
 	at := func(sub string) int { return strings.Index(screen, sub) }
 	order := []string{"Planned", "Groceries budget", "Fri 02 Oct", "Kifla", "Sun 11 Oct", "Lidl", "Penny"}
 	last := -1
@@ -514,7 +662,7 @@ func TestRenamingACategoryEverywhere(t *testing.T) {
 			m.dash.cursor = i
 		}
 	}
-	mustContain(t, plain(m), "e rename")
+	mustContain(t, plain(m), "Rename: e")
 	m = press(t, m, "e")
 	if m.rename == nil {
 		t.Fatalf("e on a header did not open the rename dialog:\n%s", plain(m))
@@ -562,5 +710,175 @@ func TestTransfersCannotBeRenamed(t *testing.T) {
 	m = press(t, m, "e")
 	if m.rename != nil {
 		t.Error("Transfers opened the rename dialog")
+	}
+}
+
+// Uncategorised expenses sit in a To categorise pane: beside the month on a
+// terminal with room for it, between income and expenses otherwise. tab
+// visits income, To categorise and expenses in turn.
+func TestToCategorisePane(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.Add(model.Income, "Salary", money.FromLei(10000), true)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Carrefour Express Mihalache", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Altex", 420, ""))
+	saveMonth(t, s, mo)
+
+	for _, w := range []int{testW, 150} {
+		m := appOn(t, s, october, w, testH)
+		screen := plain(m)
+		mustContain(t, screen, "To categorise", "UNCATEGORISED", "476,00 lei", "Carrefour Express Mihalache", "Altex", "▸ Groceries (1)")
+		checkWidth(t, m)
+
+		first := strings.SplitN(screen, "\n", 2)[0]
+		if beside := strings.Contains(first, "To categorise"); beside != (w == 150) {
+			t.Errorf("width %d: To categorise beside the month = %v:\n%s", w, beside, screen)
+		}
+
+		sections := []int{}
+		for range 4 {
+			sections = append(sections, m.cursorSection())
+			m = press(t, m, "tab")
+		}
+		if want := []int{secIncome, secTodo, secExpense, secIncome}; fmt.Sprint(sections) != fmt.Sprint(want) {
+			t.Errorf("width %d: tab visits %v, want %v", w, sections, want)
+		}
+
+		// shift+tab goes round the other way, from any row of a pane. The
+		// last tab left the cursor on the first row to categorise; start on
+		// the second.
+		m = press(t, m, "down")
+		sections = sections[:0]
+		for range 4 {
+			sections = append(sections, m.cursorSection())
+			m = press(t, m, "shift+tab")
+		}
+		if want := []int{secTodo, secIncome, secExpense, secTodo}; fmt.Sprint(sections) != fmt.Sprint(want) {
+			t.Errorf("width %d: shift+tab visits %v, want %v", w, sections, want)
+		}
+		if m.dash.cursor != 0 {
+			t.Errorf("width %d: shift+tab landed on row %d, not the income row", w, m.dash.cursor)
+		}
+	}
+}
+
+// The arrows open and close categories like a file tree, and no longer page
+// months: ] and [ do that.
+func TestArrowsFoldCategories(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	mo.AddImported(model.Expense, bank("k2", "Mega", 90, "Groceries"))
+	mo.AddImported(model.Expense, bank("k3", "Bolt", 25, "Transport"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down") // the Groceries header
+	m = press(t, m, "right")
+	if m.dash.key != october {
+		t.Fatalf("→ paged to %v", m.dash.key)
+	}
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Fatalf("→ did not unfold Groceries:\n%s", plain(m))
+	}
+	if r, _ := m.dash.current(); !r.header {
+		t.Error("unfolding moved the cursor off the header")
+	}
+
+	// → again steps into the open category.
+	m = press(t, m, "right")
+	if _, e, ok := m.dash.currentEntry(); !ok || e.Category != "Groceries" {
+		t.Fatalf("→ on an open header did not step onto its first entry")
+	}
+
+	// ← from an entry folds its category and lands on the header.
+	m = press(t, m, "down", "left")
+	if r, _ := m.dash.current(); !r.header || r.cat != "Groceries" {
+		t.Errorf("← left the cursor on %+v, want the Groceries header", r)
+	}
+	if strings.Contains(plain(m), "Lidl") {
+		t.Errorf("← did not fold Groceries:\n%s", plain(m))
+	}
+
+	// ← on a folded header and on income does nothing, months included.
+	m = press(t, m, "left", "up", "left")
+	if m.dash.key != october {
+		t.Errorf("← paged to %v", m.dash.key)
+	}
+}
+
+// h and l are the arrows for the right hand; H opens the history.
+func TestVimKeysFoldCategories(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "l")
+	if !strings.Contains(plain(m), "Lidl") {
+		t.Fatalf("l did not unfold Groceries:\n%s", plain(m))
+	}
+	m = press(t, m, "l", "h")
+	if r, _ := m.dash.current(); !r.header || strings.Contains(plain(m), "Lidl") {
+		t.Errorf("h did not fold Groceries back onto its header:\n%s", plain(m))
+	}
+	if m.screen != screenMonth {
+		t.Fatal("h left the month screen")
+	}
+	if m = press(t, m, "H"); m.screen != screenHistory {
+		t.Error("H did not open the history")
+	}
+}
+
+// tab brings the cursor back to the row it left in a pane, so a run through
+// To categorise can be picked up again after a look at the expenses.
+func TestPanesRememberTheirRow(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.Add(model.Income, "Salary", money.FromLei(10000), true)
+	mo.AddImported(model.Expense, bank("k0", "Lidl", 40, "Groceries"))
+	mo.AddImported(model.Expense, bank("k1", "Carrefour", 56, ""))
+	mo.AddImported(model.Expense, bank("k2", "Altex", 420, ""))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "down", "down") // the second row to categorise
+	_, want, _ := m.dash.currentEntry()
+
+	m = press(t, m, "tab", "tab", "tab")
+	if _, got, ok := m.dash.currentEntry(); !ok || got.ID != want.ID {
+		t.Errorf("tab round the panes came back to %+v, want %s", got, want.Label)
+	}
+	m = press(t, m, "shift+tab", "tab")
+	if _, got, ok := m.dash.currentEntry(); !ok || got.ID != want.ID {
+		t.Errorf("shift+tab and back came back to %+v, want %s", got, want.Label)
+	}
+}
+
+// - folds every category and = unfolds them all.
+func TestFoldEveryCategory(t *testing.T) {
+	s := testStore(t)
+	mo := model.New(october)
+	mo.AddImported(model.Expense, bank("k1", "Lidl", 400, "Groceries"))
+	mo.AddImported(model.Expense, bank("k2", "Bolt", 25, "Transport"))
+	saveMonth(t, s, mo)
+
+	m := appOn(t, s, october, testW, testH)
+	m = press(t, m, "=")
+	mustContain(t, plain(m), "Lidl", "Bolt")
+
+	// From an entry, folding everything leaves the cursor on its header.
+	m = press(t, m, "G", "-")
+	if screen := plain(m); strings.Contains(screen, "Lidl") || strings.Contains(screen, "Bolt") {
+		t.Errorf("- left a category open:\n%s", screen)
+	}
+	if r, _ := m.dash.current(); !r.header || r.cat != "Transport" {
+		t.Errorf("- left the cursor on %+v, want the Transport header", r)
+	}
+	m = press(t, m, "+")
+	if _, e, ok := m.dash.currentEntry(); ok || !strings.Contains(plain(m), "Lidl") {
+		t.Errorf("+ did not unfold everything with the cursor kept on the header (on %+v)", e)
 	}
 }

@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -23,10 +24,41 @@ type dash struct {
 	// is shown read-only and is never written over.
 	loadErr error
 	cursor  int
-	// collapsed names the expense categories whose entries are folded away.
-	// It belongs to the app rather than the month, so a folded category stays
-	// folded while paging through months.
-	collapsed map[string]bool
+	// expanded names the expense categories whose entries are shown.
+	// Categories start folded, showing only their header and total. The set
+	// belongs to the app rather than the month, so an unfolded category stays
+	// unfolded while paging through months.
+	expanded map[string]bool
+	// marked are the expenses picked with space, to be categorised together.
+	// They belong to the month: paging away drops them.
+	marked map[string]bool
+	// lastIn is the row the cursor was on when it last left each pane, so
+	// tab brings it back there rather than to the pane's top. It belongs to
+	// the month, like the marks.
+	lastIn map[int]string
+}
+
+// markedIDs lists the marked expenses still in the month, in list order.
+func (d dash) markedIDs() []string {
+	var ids []string
+	for _, r := range d.rows() {
+		if r.kind == model.Expense && r.index >= 0 && !r.header {
+			if id := d.month.Expenses[r.index].ID; d.marked[id] {
+				ids = append(ids, id)
+			}
+		}
+	}
+	// A marked entry in a folded category has no row; it still counts.
+	seen := map[string]bool{}
+	for _, id := range ids {
+		seen[id] = true
+	}
+	for _, e := range d.month.Expenses {
+		if d.marked[e.ID] && !seen[e.ID] {
+			ids = append(ids, e.ID)
+		}
+	}
+	return ids
 }
 
 // row addresses one selectable line. index is -1 for the placeholder line an
@@ -38,6 +70,40 @@ type row struct {
 	index  int
 	header bool
 	cat    string
+	// todo marks an uncategorised expense, listed in its own pane rather
+	// than under the expense categories.
+	todo bool
+}
+
+// The month's panes, top to bottom, which the cursor moves through in turn.
+const (
+	secIncome = iota
+	secTodo
+	secExpense
+)
+
+func (r row) section() int {
+	switch {
+	case r.kind == model.Income:
+		return secIncome
+	case r.todo:
+		return secTodo
+	}
+	return secExpense
+}
+
+// hasTodo reports whether the month has a To categorise pane: some expenses
+// have categories and some are still waiting for one.
+func (d dash) hasTodo() bool {
+	if !d.grouped() {
+		return false
+	}
+	for _, e := range d.month.Expenses {
+		if e.Category == "" {
+			return true
+		}
+	}
+	return false
 }
 
 // grouped reports whether expenses are shown under category headers. A month
@@ -65,6 +131,12 @@ func (d dash) rows() []row {
 		}
 	}
 
+	if d.hasTodo() {
+		for _, i := range byDay(d.month.Expenses, func(e model.Entry) bool { return e.Category == "" }) {
+			out = append(out, row{kind: model.Expense, index: i, todo: true})
+		}
+	}
+
 	switch {
 	case len(d.month.Expenses) == 0:
 		out = append(out, row{kind: model.Expense, index: -1})
@@ -74,8 +146,11 @@ func (d dash) rows() []row {
 		}
 	default:
 		for _, c := range d.month.Categories() {
+			if c.Name == "" {
+				continue // in the To categorise pane
+			}
 			out = append(out, row{kind: model.Expense, index: -1, header: true, cat: c.Name})
-			if d.collapsed[c.Name] {
+			if !d.expanded[c.Name] {
 				continue
 			}
 			for _, i := range byDay(d.month.Expenses, func(e model.Entry) bool { return e.Category == c.Name }) {
@@ -131,11 +206,11 @@ func (d *dash) clamp() {
 func (m *Model) openMonth(k model.Key) {
 	res, err := m.store.Get(k)
 	if err != nil {
-		m.dash = dash{key: k, loadErr: err, collapsed: m.collapsed}
+		m.dash = dash{key: k, loadErr: err, expanded: m.expanded}
 		return
 	}
 	m.dash = dash{
-		collapsed:  m.collapsed,
+		expanded:   m.expanded,
 		key:        k,
 		month:      res.Month,
 		onDisk:     res.OnDisk,
@@ -157,16 +232,16 @@ func (m *Model) save() bool {
 
 func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	switch key {
-	case "left", "[", "p":
+	case "[", "p":
 		m.openMonth(m.dash.key.Prev())
 		return m, nil
-	case "right", "]", "n":
+	case "]", "n":
 		m.openMonth(m.dash.key.Next())
 		return m, nil
 	case "t":
 		m.openMonth(model.Today())
 		return m, nil
-	case "h":
+	case "H":
 		m.openHistory()
 		return m, nil
 	case "I":
@@ -187,6 +262,18 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 		m.dash.cursor = 0
 	case "G", "end":
 		m.dash.cursor = len(m.dash.rows()) - 1
+	case "tab":
+		m.dash.jumpSection()
+	case "shift+tab":
+		m.dash.jumpSectionBack()
+	case "right", "l":
+		m.dash.unfold()
+	case "left", "h":
+		m.dash.fold()
+	case "-":
+		m.dash.foldAll(true)
+	case "=", "+":
+		m.dash.foldAll(false)
 
 	case "a":
 		if r, ok := m.dash.current(); ok {
@@ -198,12 +285,18 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "x":
 		m.form = newForm(m.theme, model.Expense, nil, "", m.categoryNames())
 
+	case "esc":
+		if len(m.dash.marked) > 0 {
+			m.dash.marked = nil
+			m.setStatus("Marks cleared")
+		}
 	case "enter", "space", " ":
 		if r, ok := m.dash.current(); ok && r.header {
-			m.dash.collapsed[r.cat] = !m.dash.collapsed[r.cat]
+			m.dash.expanded[r.cat] = !m.dash.expanded[r.cat]
 			return m, nil
 		}
 		if key != "enter" {
+			m.toggleMark()
 			return m, nil
 		}
 		fallthrough
@@ -218,14 +311,30 @@ func (m Model) monthKey(key string) (tea.Model, tea.Cmd) {
 	case "c":
 		kind, entry, ok := m.dash.currentEntry()
 		switch {
+		case len(m.dash.markedIDs()) > 0:
+			m.openCategoriseMany(m.dash.markedIDs())
 		case !ok:
 		case kind == model.Income:
 			m.setStatus("Only expenses have categories")
 		default:
 			m.openCategorise(entry)
 		}
+	case "b":
+		if r, ok := m.dash.current(); ok && r.header {
+			m.togglePaidBack(r.cat)
+			return m, nil
+		}
+		m.startLink()
 	case "u":
 		m.openPayees()
+	case "s":
+		m.stats = m.stats.next(1)
+	case "S":
+		m.stats = m.stats.next(-1)
+	case ">":
+		m.startMove(1)
+	case "<":
+		m.startMove(-1)
 	case "d", "delete", "backspace":
 		if kind, entry, ok := m.dash.currentEntry(); ok {
 			m.confirm = &confirmState{kind: kind, id: entry.ID, label: entry.Label, amount: entry.Amount}
@@ -311,7 +420,7 @@ func (m *Model) useCategory(name string) string {
 // if that is what hides it.
 func (m *Model) selectEntry(kind model.Kind, id string) {
 	if e, ok := m.dash.month.Find(kind, id); ok && kind == model.Expense {
-		delete(m.dash.collapsed, e.Category)
+		m.dash.expanded[e.Category] = true
 	}
 	for i, r := range m.dash.rows() {
 		if r.kind == kind && r.index >= 0 && !r.header && m.dash.month.Entries(kind)[r.index].ID == id {
@@ -322,154 +431,390 @@ func (m *Model) selectEntry(kind model.Kind, id string) {
 	m.dash.clamp()
 }
 
-func (m Model) monthHints() []hint {
-	if m.dash.loadErr != nil {
-		return []hint{keyHint("←/→", "month"), keyHint("h", "history"), keyHint("I", "import"), keyHint("q", "quit")}
+// toggleMark marks or unmarks the expense under the cursor and moves on to
+// the next row, so a run of entries is marked by holding space.
+func (m *Model) toggleMark() {
+	kind, e, ok := m.dash.currentEntry()
+	switch {
+	case !ok:
+		return
+	case kind == model.Income:
+		m.setStatus("Only expenses have categories")
+		return
 	}
-	edit := "edit"
-	if r, ok := m.dash.current(); ok && r.header {
-		edit = "rename"
+	if m.dash.marked == nil {
+		m.dash.marked = map[string]bool{}
 	}
-	return []hint{
-		keyHint("a", "add"),
-		keyHint("e", edit),
-		keyHint("d", "delete"),
-		keyHint("r", "recurring"),
-		keyHint("c", "categorise"),
-		keyHint("u", "uncategorised"),
-		keyHint("I", "import"),
-		keyHint("←/→", "month"),
-		keyHint("h", "history"),
-		keyHint("?", "help"),
-		keyHint("q", "quit"),
+	if m.dash.marked[e.ID] {
+		delete(m.dash.marked, e.ID)
+	} else {
+		m.dash.marked[e.ID] = true
 	}
+	m.dash.cursor = min(len(m.dash.rows())-1, m.dash.cursor+1)
 }
 
-// monthView draws the month. maxH is how many lines it may use; when the list
-// is longer than that it scrolls around the cursor, keeping the title above
-// and the totals below in place. A maxH of zero means no limit.
-func (m Model) monthView(cw, maxH int) string {
+// spot remembers where the cursor is within its list, so that it can stay
+// there when the entries under it are filed elsewhere.
+type spot struct {
+	kind model.Kind
+	cat  string
+	sec  int
+	// ids are the entries to try in order: the one under the cursor, then
+	// those after it in the same list, then those before it.
+	ids []string
+	at  int
+}
+
+func (d dash) spot() spot {
+	rows := d.rows()
+	if d.cursor < 0 || d.cursor >= len(rows) {
+		return spot{at: d.cursor}
+	}
+	cur := rows[d.cursor]
+	s := spot{kind: cur.kind, cat: cur.cat, sec: cur.section(), at: d.cursor}
+	add := func(i int) {
+		r := rows[i]
+		if !r.header && r.index >= 0 && r.section() == cur.section() && r.cat == cur.cat {
+			s.ids = append(s.ids, d.month.Entries(r.kind)[r.index].ID)
+		}
+	}
+	for i := d.cursor; i < len(rows); i++ {
+		add(i)
+	}
+	for i := d.cursor - 1; i >= 0; i-- {
+		add(i)
+	}
+	return s
+}
+
+// returnTo puts the cursor back on the spot: on the first of its entries
+// still in the list it was in, or failing that on the row it was on.
+func (m *Model) returnTo(s spot) {
+	for _, id := range s.ids {
+		if e, ok := m.dash.month.Find(s.kind, id); ok && e.Category == s.cat {
+			m.selectEntry(s.kind, id)
+			return
+		}
+	}
+	m.dash.cursor = s.at
+	m.dash.clamp()
+}
+
+// monthTitle names the month pane: its jump key and the month.
+func (m Model) monthTitle() string { return "[1] " + m.dash.key.Label() }
+
+// monthError explains a month whose file cannot be read.
+func (m Model) monthError(cw int) string {
 	t := m.theme
-	var lines []string
+	return strings.Join([]string{
+		wrap(t.Danger, cw, m.dash.loadErr.Error()),
+		"",
+		wrap(t.Muted, cw, "Fix the file by hand, or move it aside. Nothing here overwrites it."),
+	}, "\n")
+}
 
-	name, when := spread("budget", m.dash.key.Label(), cw)
-	lines = append(lines, t.Title.Render(name)+t.Month.Render(when))
-
-	if m.dash.loadErr != nil {
-		lines = append(lines,
-			"",
-			wrap(t.Danger, cw, m.dash.loadErr.Error()),
-			"",
-			wrap(t.Muted, cw, "Fix the file by hand, or move it aside. Nothing here overwrites it."),
-		)
-		return strings.Join(lines, "\n")
+// monthSection draws one section of the month, income or expenses, for a
+// pane h lines tall. When it is longer than that it scrolls around the
+// cursor. Income carries the month's notes above it, as the first pane.
+// count is the cursor's place in the section, empty when the cursor is in
+// the other one; lines is how tall the section is unscrolled. An h of zero
+// means no limit.
+func (m Model) monthSection(sec, cw, h int) (body, count string, lines int) {
+	t := m.theme
+	kind := model.Expense
+	if sec == secIncome {
+		kind = model.Income
+	}
+	var head []string
+	if sec == secIncome {
+		if note := m.monthNote(); note != "" {
+			head = append(head, t.Muted.Render(truncate(note, cw)))
+		}
+		if m.dash.warning != nil {
+			head = append(head, wrap(t.Warning, cw, m.dash.warning.Error()))
+		}
+		if len(head) > 0 {
+			head = append(head, "")
+		}
+	}
+	if sec == secTodo {
+		head = append(head, m.todoHeader(cw))
+	} else {
+		head = append(head, m.sectionHeader(kind, cw))
 	}
 
-	if note := m.monthNote(); note != "" {
-		lines = append(lines, t.Muted.Render(truncate(note, cw)))
-	}
-	if m.dash.warning != nil {
-		lines = append(lines, wrap(t.Warning, cw, m.dash.warning.Error()))
-	}
-
-	var body []string
-	cursorLine := 0
+	var out []string
+	cursorLine, place, n := 0, -1, 0
 	totals := map[string]model.CategoryTotal{}
 	for _, c := range m.dash.month.Categories() {
 		totals[c.Name] = c
 	}
-	rows := m.dash.rows()
 	days := m.dayBuckets()
-	for _, kind := range []model.Kind{model.Income, model.Expense} {
-		body = append(body, "", m.sectionHeader(kind, cw))
-		lastDay, lastCat := "\x00", "\x00"
-		for i, r := range rows {
-			if r.kind != kind {
-				continue
-			}
-			selected := i == m.dash.cursor
-			if r.header {
-				lastDay, lastCat = "\x00", r.cat
-				if selected {
-					cursorLine = len(body)
-				}
-				body = append(body, m.categoryLine(totals[r.cat], selected, cw))
-				continue
-			}
-			bucketed := false
-			if kind == model.Expense && r.index >= 0 {
-				e := m.dash.month.Expenses[r.index]
-				if days.used[e.Category] {
-					bucketed = true
-					if r.cat != lastCat {
-						lastDay, lastCat = "\x00", r.cat
-					}
-					if e.Date != lastDay {
-						lastDay = e.Date
-						body = append(body, m.dayLine(e, days, cw))
-					}
-				}
-			}
+	lastDay, lastCat := "\x00", "\x00"
+	for i, r := range m.dash.rows() {
+		if r.section() != sec {
+			continue
+		}
+		selected := i == m.dash.cursor
+		if selected {
+			place = n
+		}
+		n++
+		if r.header {
+			lastDay, lastCat = "\x00", r.cat
 			if selected {
-				cursorLine = len(body)
+				cursorLine = len(out)
 			}
-			body = append(body, m.entryLine(r, selected, bucketed, cw))
+			out = append(out, m.categoryLine(totals[r.cat], selected, cw))
+			continue
+		}
+		bucketed := false
+		if kind == model.Expense && r.index >= 0 {
+			e := m.dash.month.Expenses[r.index]
+			if days.used[e.Category] {
+				bucketed = true
+				if r.cat != lastCat {
+					lastDay, lastCat = "\x00", r.cat
+				}
+				if e.Date != lastDay {
+					lastDay = e.Date
+					out = append(out, m.dayLine(e, days, cw))
+				}
+			}
+		}
+		if selected {
+			cursorLine = len(out)
+		}
+		out = append(out, m.entryLine(r, selected, bucketed, cw))
+	}
+
+	lines = lipgloss.Height(strings.Join(head, "\n")) + len(out)
+	if h > 0 {
+		out = scrollWindow(out, cursorLine, h-lipgloss.Height(strings.Join(head, "\n")))
+	}
+	if place >= 0 {
+		count = counter(place, n)
+	}
+	return strings.Join(append(head, out...), "\n"), count, lines
+}
+
+// cursorSection is the pane the cursor is in.
+func (m Model) cursorSection() int {
+	if r, ok := m.dash.current(); ok {
+		return r.section()
+	}
+	return secIncome
+}
+
+// unfold opens the category on the cursor's header. On a header already
+// open it steps onto the category's first entry, the way a file tree does.
+func (d *dash) unfold() {
+	r, ok := d.current()
+	if !ok || !r.header {
+		return
+	}
+	if !d.expanded[r.cat] {
+		d.expanded[r.cat] = true
+		return
+	}
+	if rows := d.rows(); d.cursor+1 < len(rows) && !rows[d.cursor+1].header && rows[d.cursor+1].cat == r.cat {
+		d.cursor++
+	}
+}
+
+// fold closes the category the cursor is in, from its header or from any of
+// its entries, and leaves the cursor on the header.
+func (d *dash) fold() {
+	r, ok := d.current()
+	if !ok || r.cat == "" || r.todo {
+		return
+	}
+	delete(d.expanded, r.cat)
+	for i, row := range d.rows() {
+		if row.header && row.cat == r.cat {
+			d.cursor = i
+			return
 		}
 	}
+}
 
-	tail := []string{"", t.Rule.Render(rule(cw))}
+// foldAll folds every category, or unfolds every one, keeping the cursor on
+// the row it was on; an entry that folds away leaves it on its header.
+func (d *dash) foldAll(fold bool) {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	want := d.rowKey(r)
+	if fold && !r.header && r.cat != "" {
+		want = "cat:" + r.cat
+	}
+	for _, c := range d.month.Categories() {
+		if fold {
+			delete(d.expanded, c.Name)
+		} else if c.Name != "" {
+			d.expanded[c.Name] = true
+		}
+	}
+	for i, row := range d.rows() {
+		if want != "" && d.rowKey(row) == want {
+			d.cursor = i
+			return
+		}
+	}
+	d.clamp()
+}
+
+// rowKey names a row by what it shows rather than where it is, so it can be
+// found again after rows above it come or go. Placeholders have no key.
+func (d dash) rowKey(r row) string {
+	switch {
+	case r.header:
+		return "cat:" + r.cat
+	case r.index < 0:
+		return ""
+	}
+	return fmt.Sprintf("%d:%s", r.kind, d.month.Entries(r.kind)[r.index].ID)
+}
+
+// enterPane moves the cursor into the pane whose first row is start: back
+// onto the row it left there, while that row is still in the pane, or
+// else onto the first.
+func (d *dash) enterPane(start int) {
+	rows := d.rows()
+	if r, ok := d.current(); ok {
+		if d.lastIn == nil {
+			d.lastIn = map[int]string{}
+		}
+		d.lastIn[r.section()] = d.rowKey(r)
+	}
+	d.cursor = start
+	sec := rows[start].section()
+	want := d.lastIn[sec]
+	if want == "" {
+		return
+	}
+	for i := start; i < len(rows) && rows[i].section() == sec; i++ {
+		if d.rowKey(rows[i]) == want {
+			d.cursor = i
+			return
+		}
+	}
+}
+
+// jumpSection moves the cursor to the next pane, round to the first after
+// the last.
+func (d *dash) jumpSection() {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	rows := d.rows()
+	for i := d.cursor + 1; i < len(rows); i++ {
+		if rows[i].section() != r.section() {
+			d.enterPane(i)
+			return
+		}
+	}
+	d.enterPane(0)
+}
+
+// jumpSectionBack moves the cursor to the previous pane, round to the last
+// after the first.
+func (d *dash) jumpSectionBack() {
+	r, ok := d.current()
+	if !ok {
+		return
+	}
+	rows := d.rows()
+	// The pane before is whichever one the row above this pane's first row
+	// is in; from the first pane it is the last.
+	start := d.cursor
+	for start > 0 && rows[start-1].section() == r.section() {
+		start--
+	}
+	prev := len(rows) - 1
+	if start > 0 {
+		prev = start - 1
+	}
+	for prev > 0 && rows[prev-1].section() == rows[prev].section() {
+		prev--
+	}
+	d.enterPane(prev)
+}
+
+// monthTotals is what the totals pane shows. full adds the income and
+// expense totals, for a pane beside the list where they are not crowded.
+func (m Model) monthTotals(cw int, full bool) string {
+	t := m.theme
+	var lines []string
+	if full {
+		for _, kind := range []model.Kind{model.Income, model.Expense} {
+			name := "Income"
+			if kind == model.Expense {
+				name = "Expenses"
+			}
+			amount := m.dash.month.Total(kind).String()
+			lines = append(lines, leaderRow(t, name, t.Label, amount, t.Amount, cw))
+		}
+	}
 	if m.dash.month.HasActuals() {
-		tail = append(tail, m.spentLine(cw))
+		lines = append(lines, m.spentLine(cw))
 	}
-	tail = append(tail, m.leftLine(cw))
+	if l := m.awaitingLine(cw); l != "" {
+		lines = append(lines, l)
+	}
+	if full {
+		lines = append(lines, t.Rule.Render(rule(cw)))
+	}
+	lines = append(lines, m.leftLine(cw))
 	if b := m.leftBar(cw); b != "" {
-		tail = append(tail, b)
+		lines = append(lines, b)
 	}
-
-	if maxH > 0 {
-		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, cursorLine, maxH-fixed, cw)
-	}
-	lines = append(lines, body...)
-	lines = append(lines, tail...)
 	return strings.Join(lines, "\n")
 }
 
-// minScroll is the shortest list worth scrolling. On a terminal too short to
-// show even that, the month is drawn whole and the terminal clips it.
-const minScroll = 6
+// categoryName is how a category is shown: the empty one is Uncategorised.
+func categoryName(name string) string {
+	if name == "" {
+		return "Uncategorised"
+	}
+	return name
+}
 
-// scrollWindow cuts lines down to at most h, centred on the cursor line, and
-// says how much is hidden above and below.
-func scrollWindow(t Theme, lines []string, cursor, h, cw int) []string {
+// minScroll is the shortest list worth scrolling. On a terminal too short to
+// show even that, the list is drawn whole and the pane cuts it.
+const minScroll = 3
+
+// scrollWindow cuts lines down to at most h, centred on the cursor line.
+func scrollWindow(lines []string, cursor, h int) []string {
 	if h < minScroll || len(lines) <= h {
 		return lines
 	}
 	start := min(max(0, cursor-h/2), len(lines)-h)
-	end := start + h
-	out := append([]string(nil), lines[start:end]...)
-	if start > 0 {
-		out[0] = t.Muted.Render(padRight("  ↑ "+itoa(start)+" more", cw))
-	}
-	if end < len(lines) {
-		out[h-1] = t.Muted.Render(padRight("  ↓ "+itoa(len(lines)-end)+" more", cw))
-	}
-	return out
+	return lines[start : start+h]
 }
 
 // categoryLine is the header of one expense category: how many entries it
 // holds and what it comes to, actual against forecast when it has both.
 func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string {
 	t := m.theme
-	arrow := "▾"
-	if m.dash.collapsed[c.Name] {
-		arrow = "▸"
+	arrow := "▸"
+	if m.dash.expanded[c.Name] {
+		arrow = "▾"
 	}
 	name := c.Name
 	if name == "" {
 		name = "Uncategorised"
 	}
 	left := arrow + " " + name + " (" + itoa(c.Count) + ")"
+	if m.paidBack(c.Name) {
+		_, open := m.dash.month.OpenRefunds(func(cat string) bool { return cat == c.Name })
+		left += " · paid back later"
+		if open > 0 {
+			left += ", " + itoa(open) + " open"
+		}
+	}
 
 	var right string
 	switch {
@@ -483,20 +828,19 @@ func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string
 	if lipgloss.Width(right) > cw/2 {
 		right = c.Projected.String()
 	}
-	leftW := max(0, cw-lipgloss.Width(right))
-	left = padRight(truncate(left, max(0, leftW-1)), leftW)
-
+	rightStyle := t.Total
 	switch {
 	case selected:
-		return t.Selected.Bold(true).Render(padRight(left+right, cw))
+		left = truncate(left, max(0, cw-lipgloss.Width(right)-2))
+		return t.Selected.Bold(true).Render(padRight(left+leader(cw-lipgloss.Width(left)-lipgloss.Width(right))+right, cw))
 	case c.Name == model.Transfers:
-		return t.Muted.Render(left + right)
+		return leaderRow(t, left, t.Muted, right, t.Muted, cw)
 	case c.Name == "" && c.Actual > 0:
-		return t.Warning.Render(left) + t.Total.Render(right)
+		return leaderRow(t, left, t.Warning, right, rightStyle, cw)
 	case c.Forecast > 0 && c.Actual > c.Forecast:
-		return t.Section.Render(left) + t.Negative.Render(right)
+		rightStyle = t.Negative
 	}
-	return t.Section.Render(left) + t.Total.Render(right)
+	return leaderRow(t, left, t.Section, right, rightStyle, cw)
 }
 
 // spentLine separates what the bank has already reported from the projection
@@ -504,7 +848,7 @@ func (m Model) categoryLine(c model.CategoryTotal, selected bool, cw int) string
 func (m Model) spentLine(cw int) string {
 	t := m.theme
 	amount := m.dash.month.Spent().Lei()
-	return t.Muted.Render(padRight("spent so far", cw-lipgloss.Width(amount)) + amount)
+	return leaderRow(t, "spent so far", t.Muted, amount, t.Muted, cw)
 }
 
 // monthNote explains an unsaved month: where its entries came from.
@@ -529,6 +873,19 @@ func (m Model) sectionHeader(kind model.Kind, cw int) string {
 	}
 	total := m.dash.month.Total(kind).Lei()
 	return t.Section.Render(padRight(name, cw-lipgloss.Width(total))) + t.Total.Render(total)
+}
+
+// todoHeader heads the To categorise pane with what its expenses come to.
+func (m Model) todoHeader(cw int) string {
+	t := m.theme
+	var total money.Amount
+	for _, c := range m.dash.month.Categories() {
+		if c.Name == "" {
+			total = c.Projected
+		}
+	}
+	amount := total.Lei()
+	return t.Warning.Render(padRight("UNCATEGORISED", cw-lipgloss.Width(amount))) + t.Total.Render(amount)
 }
 
 // dayTotals is what the bank booked on each day within each expense category,
@@ -575,22 +932,33 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.index < 0 {
 		text := padRight("  nothing here yet — press a to add", cw)
 		if selected {
-			return t.Selected.Render(padRight("› "+strings.TrimSpace(text), cw))
+			return t.Selected.Render(padRight("  "+strings.TrimSpace(text), cw))
 		}
 		return t.Muted.Render(text)
 	}
 
 	e := m.dash.month.Entries(r.kind)[r.index]
-	marker := "  "
-	if e.Recurring {
-		marker = " ↻"
+	// lead is the margin before the label: deeper under a day's heading,
+	// and ending in a tick when the expense is marked.
+	lead := "  "
+	if bucketed {
+		lead = "    "
+	}
+	if r.kind == model.Expense && m.dash.marked[e.ID] {
+		lead = lead[:len(lead)-2] + "✓ "
 	}
 	text := e.Label
 	switch {
 	case bucketed:
-		text = "  " + text // under its day's heading
+		// under its day's heading, which lead indents for
 	case len(e.Date) == len("2026-10-02"):
 		text = e.Date[8:] + " " + text // day of the month the bank booked it
+		if e.Date[:7] != m.dash.key.String() {
+			// Booked in another month and counted in this one.
+			if when, err := time.Parse("2006-01-02", e.Date); err == nil {
+				text = when.Format("02 Jan") + " " + e.Label
+			}
+		}
 	}
 	if e.Planned > 0 && e.Planned != e.Amount {
 		text += " · planned " + e.Planned.String()
@@ -598,17 +966,78 @@ func (m Model) entryLine(r row, selected, bucketed bool, cw int) string {
 	if r.kind == model.Income && e.IsTransfer() {
 		text += " · transfer, not counted"
 	}
-	label := padRight(truncate(text, labelW), labelW)
-	amount := padLeft(e.Amount.String(), amtW)
-
+	note, awaiting := m.refundNote(r.kind, e)
+	text += note
+	// A dotted leader runs from the label to the amount. A recurring entry's
+	// ↻ sits on it, in the same column on every row, just left of the amount
+	// column.
+	labelW -= lipgloss.Width(lead) - 2
+	label := truncate(text, labelW)
+	amount := e.Amount.String()
+	from := lipgloss.Width(lead) + lipgloss.Width(label)
+	gap := []rune(leader(cw - from - lipgloss.Width(amount)))
+	before, marker, after := string(gap), "", ""
+	if at := cw - amtW - 1 - from; e.Recurring && at >= 0 && at < len(gap) {
+		before, marker, after = string(gap[:at]), "↻", string(gap[at+1:])
+	} else if e.Recurring {
+		label = truncate(label, max(1, labelW-2))
+		before, marker, after = " ", "↻", string([]rune(leader(cw-lipgloss.Width(lead)-lipgloss.Width(label)-2-lipgloss.Width(amount))))
+	}
+	dots := before + marker + after
 	if selected {
-		return t.Selected.Bold(true).Render(padRight("› "+label+marker+amount, cw))
+		return t.Selected.Bold(true).Render(padRight(lead+label+dots+amount, cw))
 	}
-	if (e.IsForecast() && m.dash.month.HasActuals()) || (r.kind == model.Income && e.IsTransfer()) {
-		// Still only expected: the bank has not reported it yet.
-		return t.Muted.Render("  "+label) + t.Marker.Render(marker) + t.Muted.Render(amount)
+	notCounted := (r.kind == model.Income && e.IsTransfer()) || (e.IsLinked() && e.Counted() <= 0)
+	labelStyle, amountStyle := t.Label, t.Amount
+	switch {
+	case (e.IsForecast() && m.dash.month.HasActuals()) || notCounted:
+		// Still only expected, or not counted at all.
+		labelStyle, amountStyle = t.Muted, t.Muted
+	case awaiting:
+		labelStyle = t.Warning
 	}
-	return t.Label.Render("  "+label) + t.Marker.Render(marker) + t.Amount.Render(amount)
+	return t.Marker.Render(lead) + labelStyle.Render(label) + t.Leader.Render(before) + t.Marker.Render(marker) +
+		t.Leader.Render(after) + amountStyle.Render(amount)
+}
+
+// refundNote says how an entry stands with reimbursements: a refund and how
+// much of it is not counted, an expense and how much of it was paid back, or
+// an expense in a paid-back category still waiting for its money. awaiting
+// is true for that last case.
+func (m Model) refundNote(kind model.Kind, e model.Entry) (note string, awaiting bool) {
+	paid := e.Reimbursed()
+	switch {
+	case kind == model.Income && paid > 0 && e.Counted() <= 0:
+		return " · refund, not counted", false
+	case kind == model.Income && paid > 0:
+		return " · refund, " + paid.String() + " not counted", false
+	case kind == model.Income:
+		return "", false
+	case paid > 0 && e.Counted() <= 0:
+		return " · paid back", false
+	case paid > 0 && m.paidBack(e.Category):
+		return " · " + e.Open().String() + " still to come back", true
+	case paid > 0:
+		return " · " + paid.String() + " paid back", false
+	case m.paidBack(e.Category):
+		return " · awaiting refund", true
+	}
+	return "", false
+}
+
+// paidBack reports whether a category's expenses are expected to come back.
+func (m Model) paidBack(category string) bool {
+	return m.rules != nil && m.rules.IsPaidBack(category)
+}
+
+// awaitingLine is how much of the month's expenses is still to be paid back.
+func (m Model) awaitingLine(cw int) string {
+	sum, _ := m.dash.month.OpenRefunds(m.paidBack)
+	if sum <= 0 {
+		return ""
+	}
+	amount := sum.Lei()
+	return leaderRow(m.theme, "still to come back", m.theme.Warning, amount, m.theme.Warning, cw)
 }
 
 // entryColumns splits a row between its amount and its label. The amount
@@ -629,7 +1058,7 @@ func (m Model) leftLine(cw int) string {
 		name, style = "OVER BUDGET", t.Negative
 	}
 	amount := left.Lei()
-	return t.Total.Render(padRight(name, cw-lipgloss.Width(amount))) + style.Render(amount)
+	return leaderRow(t, name, t.Total, amount, style, cw)
 }
 
 func (m Model) leftBar(cw int) string {

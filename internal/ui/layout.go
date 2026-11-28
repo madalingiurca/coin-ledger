@@ -9,31 +9,24 @@ import (
 )
 
 const (
-	// contentMax keeps long lines readable on a wide terminal.
-	contentMax = 68
 	// contentMin is the narrowest layout that still makes sense; below it the
 	// app drops decoration rather than wrapping into nonsense.
 	contentMin = 34
 	// amountCol is the fixed right-hand column every amount is aligned in.
 	amountCol = 13
-	// boxChrome is what a frame costs around its content: two border columns
-	// and two columns of padding on each side. A lipgloss Width covers both,
-	// so a frame is asked for cw+boxChrome to hold cw columns of content.
-	boxChrome = 6
 )
 
 // contentWidth is the usable width inside the frame for a terminal of w
-// columns. It never returns more than the terminal can hold: a frame wider
-// than the screen tears every line it draws.
+// columns. The panes fill the terminal, like lazygit's: a wide screen gets
+// wide panes rather than a narrow column lost in empty margins. It never
+// returns more than the terminal can hold: a frame wider than the screen
+// tears every line it draws.
 func contentWidth(w int) int {
-	inner := w - boxChrome - 2 // a column of breathing room on each side
-	if inner > contentMax {
-		inner = contentMax
-	}
+	inner := w - paneChrome
 	if inner < contentMin {
 		inner = contentMin
 	}
-	if fits := w - boxChrome; inner > fits {
+	if fits := w - paneChrome; inner > fits {
 		inner = max(1, fits)
 	}
 	return inner
@@ -85,6 +78,25 @@ func spread(left, right string, w int) (string, string) {
 	return padRight(truncate(left, w-rw), w-rw), right
 }
 
+// leader fills n cells between a label and its amount: a space at each end
+// and dots between, or just spaces when there is no room for a dot.
+func leader(n int) string {
+	if n < 3 {
+		return strings.Repeat(" ", max(0, n))
+	}
+	return " " + strings.Repeat("·", n-2) + " "
+}
+
+// leaderRow puts left and right on one line of exactly w cells, joined by a
+// dim dotted leader. left is cut to fit; right never is. It takes plain text
+// and the style for each side, since slicing a styled string would cut an
+// escape sequence in half.
+func leaderRow(t Theme, left string, ls lipgloss.Style, right string, rs lipgloss.Style, w int) string {
+	rw := lipgloss.Width(right)
+	left = truncate(left, max(0, w-rw-2))
+	return ls.Render(left) + t.Leader.Render(leader(w-lipgloss.Width(left)-rw)) + rs.Render(right)
+}
+
 // wrap renders prose across as many lines as it needs. Sentences are wrapped
 // rather than truncated: an explanation that loses its tail to an ellipsis has
 // stopped explaining anything.
@@ -121,57 +133,12 @@ func bar(t Theme, w, pct int) string {
 		t.BarEmpty.Render(strings.Repeat("░", w-filled))
 }
 
-// hint is one "key action" pair in a footer. Footers take hints rather than
-// rendered strings so they can shorten one when the terminal is too narrow to
-// hold it; a styled string could not be cut safely.
+// hint is one "key action" pair in the key bar. The bar takes hints rather
+// than rendered strings so it can leave one out when the terminal is too
+// narrow to hold it; a styled string could not be cut safely.
 type hint struct{ key, action string }
 
 func keyHint(key, action string) hint { return hint{key: key, action: action} }
-
-// footer lays key hints out across as many lines as it takes. Hints are worth
-// more than one tidy line: dropping the tail would hide "q quit" on exactly the
-// narrow terminals where it is hardest to guess.
-func footer(t Theme, w int, hints ...hint) string {
-	const gap = 3
-	sep := t.Footer.Render(strings.Repeat(" ", gap))
-
-	var lines []string
-	var line strings.Builder
-	used := 0
-	for _, h := range hints {
-		text, width := h.render(t, w)
-		if width == 0 {
-			continue
-		}
-		switch {
-		case used == 0:
-			line.WriteString(text)
-			used = width
-		case used+gap+width <= w:
-			line.WriteString(sep + text)
-			used += gap + width
-		default:
-			lines = append(lines, line.String())
-			line.Reset()
-			line.WriteString(text)
-			used = width
-		}
-	}
-	if used > 0 {
-		lines = append(lines, line.String())
-	}
-	return strings.Join(lines, "\n")
-}
-
-// render styles a hint, dropping its description and then trimming its key
-// when even one hint will not fit the terminal.
-func (h hint) render(t Theme, w int) (string, int) {
-	if full := lipgloss.Width(h.key) + 1 + lipgloss.Width(h.action); full <= w {
-		return t.Key.Render(h.key) + " " + t.Footer.Render(h.action), full
-	}
-	key := truncate(h.key, w)
-	return t.Key.Render(key), lipgloss.Width(key)
-}
 
 // itoa renders a small non-negative integer without pulling in strconv at
 // every call site.

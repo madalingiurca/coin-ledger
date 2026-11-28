@@ -44,8 +44,11 @@ type importState struct {
 	// preview
 	file    string
 	st      importer.Statement
-	months  []importMonth
+	months  []*importMonth
 	pickErr error
+	// seen holds every month the preview looked at, listed or not, so a
+	// month is loaded once however many rows touch it.
+	seen map[model.Key]*importMonth
 
 	// matches stage
 	matchCursor int
@@ -74,6 +77,11 @@ type importMonth struct {
 type importRow struct {
 	txn      importer.Txn
 	category string
+	// from is the month the bank booked the row in. A row in the month after
+	// it counts for that month instead: a salary paid early because the 1st
+	// fell on a weekend. ruled says a remembered payee rule moved it there.
+	from  model.Key
+	ruled bool
 	// match is a forecast entry this row looks like the actual for; choice
 	// is what the user wants done about it.
 	match  *model.Entry
@@ -103,6 +111,9 @@ func (c pairChoice) String() string {
 	}
 	return "replace"
 }
+
+// moved reports whether the row counts for another month than its date's.
+func (r importRow) moved(in model.Key) bool { return r.from != in }
 
 func (im importMonth) count(pred func(importRow) bool) int {
 	n := 0
@@ -215,6 +226,9 @@ func (m Model) importKey(key string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case stageMatches:
 		pairs := s.pairs()
+		if len(pairs) == 0 && key != "enter" && key != "y" && key != "esc" {
+			return m, nil
+		}
 		switch key {
 		case "esc", "backspace", "left":
 			s.stage = stagePreview
@@ -224,8 +238,11 @@ func (m Model) importKey(key string) (tea.Model, tea.Cmd) {
 			s.matchCursor = min(len(pairs)-1, s.matchCursor+1)
 		case "space", " ", "r":
 			p := pairs[s.matchCursor]
-			row := &s.months[p.month].add[p.row]
-			row.choice = (row.choice + 1) % 3
+			if row := &s.months[p.month].add[p.row]; row.match != nil {
+				row.choice = (row.choice + 1) % 3
+			}
+		case "n", ">":
+			m.toggleNextMonth(pairs[s.matchCursor])
 		case "enter", "y":
 			m.commitImport()
 		}
@@ -285,8 +302,15 @@ func (m *Model) previewImport(path string) {
 		return
 	}
 
-	byKey := map[model.Key]*importMonth{}
+	s.seen = map[model.Key]*importMonth{}
 	var keys []model.Key
+	use := func(k model.Key) *importMonth {
+		im := m.importMonth(k)
+		if !slices.Contains(keys, k) {
+			keys = append(keys, k)
+		}
+		return im
+	}
 	for _, txn := range st.Txns {
 		t, err := time.Parse("2006-01-02", txn.Date)
 		if err != nil {
@@ -294,36 +318,96 @@ func (m *Model) previewImport(path string) {
 			return
 		}
 		k := model.KeyOf(t)
-		im, ok := byKey[k]
-		if !ok {
-			im = &importMonth{key: k}
-			if res, err := m.store.Get(k); err != nil {
-				im.loadErr = err
-			} else {
-				im.month = res.Month
-			}
-			byKey[k] = im
-			keys = append(keys, k)
-		}
-		if im.month != nil && im.month.HasKey(txn.Key) {
-			im.dupes++
+		home := use(k)
+		if m.alreadyImported(txn.Key, k) {
+			home.dupes++
 			continue
 		}
-		row := importRow{txn: txn}
+		row := importRow{txn: txn, from: k}
 		if c, ok := m.rules.CategoryFor(txn.Payee); ok && (txn.Kind == model.Expense || c == model.Transfers) {
 			row.category = c
 		}
-		im.add = append(im.add, row)
+		target := home
+		if row.category != model.Transfers && m.rules.CountsForNextMonth(txn.Payee, t.Day()) {
+			if next := use(k.Next()); next.loadErr == nil {
+				target, row.ruled = next, true
+			}
+		}
+		target.add = append(target.add, row)
 	}
 	slices.SortFunc(keys, func(a, b model.Key) int { return a.Compare(b) })
 
 	s.file, s.st, s.months = path, st, nil
 	for _, k := range keys {
-		im := byKey[k]
+		im := s.seen[k]
 		m.matchForecasts(im, st.Source)
-		s.months = append(s.months, *im)
+		s.months = append(s.months, im)
 	}
 	s.stage = stagePreview
+}
+
+// importMonth loads a month for the import once and keeps it.
+func (m *Model) importMonth(k model.Key) *importMonth {
+	s := m.imp
+	if im, ok := s.seen[k]; ok {
+		return im
+	}
+	im := &importMonth{key: k}
+	if res, err := m.store.Get(k); err != nil {
+		im.loadErr = err
+	} else {
+		im.month = res.Month
+	}
+	s.seen[k] = im
+	return im
+}
+
+// alreadyImported reports whether a bank row booked in month k is in the
+// budget: in k, or moved to the month before or after it.
+func (m *Model) alreadyImported(key string, k model.Key) bool {
+	for _, near := range []model.Key{k, k.Prev(), k.Next()} {
+		if im := m.importMonth(near); im.month != nil && im.month.HasKey(key) {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleNextMonth moves a row in the review to the month after its date, or
+// back to its date's month, and looks for a forecast it fulfils there.
+func (m *Model) toggleNextMonth(p pairRef) {
+	s := m.imp
+	src := s.months[p.month]
+	row := src.add[p.row]
+	if row.category == model.Transfers {
+		return
+	}
+	to := row.from
+	if !row.moved(src.key) {
+		to = row.from.Next()
+	}
+	dst := m.importMonth(to)
+	if dst.loadErr != nil {
+		m.setStatus("%s cannot be read, so the row stays in %s", to.Label(), src.key.Label())
+		return
+	}
+	if !slices.Contains(s.months, dst) {
+		s.months = append(s.months, dst)
+		slices.SortFunc(s.months, func(a, b *importMonth) int { return a.key.Compare(b.key) })
+	}
+	src.add = slices.Delete(src.add, p.row, p.row+1)
+	row.match, row.reason, row.choice = nil, 0, pairReplace
+	dst.add = append(dst.add, row)
+	m.matchForecasts(dst, s.st.Source)
+
+	// Keep the cursor on the row it moved, or near where it was when the
+	// row left the list.
+	s.matchCursor = max(0, min(s.matchCursor, len(s.pairs())-1))
+	for i, q := range s.pairs() {
+		if s.months[q.month] == dst && q.row == len(dst.add)-1 {
+			s.matchCursor = i
+		}
+	}
 }
 
 // matchForecasts pairs bank rows with the forecast entries they look like:
@@ -336,6 +420,11 @@ func (m *Model) matchForecasts(im *importMonth, source string) {
 		return
 	}
 	claimed := map[string]bool{}
+	for _, r := range im.add {
+		if r.match != nil {
+			claimed[r.match.ID] = true
+		}
+	}
 	for _, want := range []model.MatchReason{model.MatchLinked, model.MatchAmount, model.MatchClose} {
 		for i := range im.add {
 			r := &im.add[i]
@@ -361,7 +450,9 @@ func (m *Model) matchForecasts(im *importMonth, source string) {
 	}
 }
 
-// pairs lists the bank rows that matched a forecast entry, in preview order.
+// pairs lists the bank rows to look at before importing: those that matched a
+// forecast entry and those that count for another month than their date's,
+// in preview order.
 func (s *importState) pairs() []pairRef {
 	var out []pairRef
 	for mi, im := range s.months {
@@ -369,7 +460,7 @@ func (s *importState) pairs() []pairRef {
 			continue
 		}
 		for ri, r := range im.add {
-			if r.match != nil {
+			if r.match != nil || r.moved(im.key) {
 				out = append(out, pairRef{mi, ri})
 			}
 		}
@@ -382,13 +473,21 @@ func (s *importState) pairs() []pairRef {
 // and importing the file again finishes the job without doubling anything.
 func (m *Model) commitImport() {
 	s := m.imp
-	added, months, replaced, linked := 0, 0, 0, false
+	added, months, replaced, taught := 0, 0, 0, false
 	var last model.Key
 	for _, im := range s.months {
 		if im.loadErr != nil || len(im.add) == 0 {
 			continue
 		}
 		for _, r := range im.add {
+			// Moving a row teaches the payee; moving back what a rule moved
+			// forgets the rule.
+			switch moved := r.moved(im.key); {
+			case moved && !r.ruled:
+				taught = m.rules.SetNextMonth(r.txn.Payee, day(r.txn.Date)) || taught
+			case !moved && r.ruled:
+				taught = m.rules.DropNextMonth(r.txn.Payee) || taught
+			}
 			imp := r.txn.Imported(s.st.Source)
 			imp.Category, imp.Auto = r.category, r.category != ""
 			if r.match != nil && r.choice == pairKeep && imp.Category == "" && r.txn.Kind == model.Expense {
@@ -398,7 +497,7 @@ func (m *Model) commitImport() {
 				if err := im.month.ReplaceForecast(r.txn.Kind, r.match.ID, imp); err == nil {
 					replaced++
 					if m.rules.SetLinkIfNew(imp.Payee, r.match.Label) {
-						linked = true
+						taught = true
 					}
 					continue
 				}
@@ -416,7 +515,7 @@ func (m *Model) commitImport() {
 		last = im.key
 	}
 
-	if linked && m.rulesErr == nil {
+	if taught && m.rulesErr == nil {
 		if err := m.store.SaveRules(m.rules); err != nil {
 			m.setError(err)
 		}
@@ -441,23 +540,22 @@ func (m *Model) commitImport() {
 	m.setStatus("Imported %s into %s", plural(added, "entry", "entries"), plural(months, "month", "months"))
 }
 
-func (m Model) importHints() []hint {
-	if m.imp.stage == stageMatches {
-		return []hint{keyHint("space", "replace / keep both / unrelated"), keyHint("↑/↓", "move"), keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
+// day is the day of the month of a "2026-11-27" date.
+func day(date string) int {
+	if t, err := time.Parse("2006-01-02", date); err == nil {
+		return t.Day()
 	}
-	if m.imp.stage == stagePreview {
-		if m.imp.newCount() == 0 {
-			return []hint{keyHint("esc", "back"), keyHint("enter", "close"), keyHint("q", "quit")}
+	return 0
+}
+
+// allMatched reports whether every row in the review matched a forecast.
+func (s *importState) allMatched() bool {
+	for _, p := range s.pairs() {
+		if s.months[p.month].add[p.row].match == nil {
+			return false
 		}
-		return []hint{keyHint("enter", "import"), keyHint("esc", "back"), keyHint("q", "quit")}
 	}
-	return []hint{
-		keyHint("enter", "open"),
-		keyHint("←", "up a folder"),
-		keyHint("~", "home"),
-		keyHint("esc", "cancel"),
-		keyHint("q", "quit"),
-	}
+	return true
 }
 
 func (s *importState) newCount() int {
@@ -470,6 +568,32 @@ func (s *importState) newCount() int {
 	return n
 }
 
+// importTitle names the import pane after the stage it is at.
+func (m Model) importTitle() string {
+	s := m.imp
+	switch s.stage {
+	case stagePreview:
+		return "[4] Import " + s.st.Bank + " · " + plural(len(s.st.Txns), "transaction", "transactions")
+	case stageMatches:
+		if n := len(s.pairs()); n == 0 || !s.allMatched() {
+			return "[4] Check before importing · " + plural(n, "row", "rows")
+		}
+		return "[4] Already planned · " + plural(len(s.pairs()), "match", "matches")
+	}
+	return "[4] Import · pick a bank CSV"
+}
+
+func (m Model) importCounter() string {
+	s := m.imp
+	switch s.stage {
+	case stagePreview:
+		return ""
+	case stageMatches:
+		return counter(s.matchCursor, len(s.pairs()))
+	}
+	return counter(s.cursor, len(s.entries))
+}
+
 func (m Model) importView(cw, maxH int) string {
 	switch m.imp.stage {
 	case stagePreview:
@@ -479,9 +603,7 @@ func (m Model) importView(cw, maxH int) string {
 	}
 	t := m.theme
 	s := m.imp
-	name, right := spread("import", "pick a bank CSV", cw)
-	lines := []string{t.Title.Render(name) + t.Muted.Render(right)}
-	lines = append(lines, t.Muted.Render(truncate(tildePath(s.dir), cw)), "")
+	lines := []string{t.Muted.Render(truncate(tildePath(s.dir), cw)), ""}
 
 	if s.dirErr != nil {
 		lines = append(lines, wrap(t.Danger, cw, s.dirErr.Error()))
@@ -504,7 +626,7 @@ func (m Model) importView(cw, maxH int) string {
 		text = padRight(truncate(text, max(4, cw-2-rw-1)), max(0, cw-2-rw))
 		switch {
 		case i == s.cursor:
-			body = append(body, t.Selected.Bold(true).Render(padRight("› "+text+right, cw)))
+			body = append(body, t.Selected.Bold(true).Render(padRight("  "+text+right, cw)))
 		case e.dir:
 			body = append(body, t.Marker.Render("  "+text)+t.Muted.Render(right))
 		default:
@@ -518,7 +640,7 @@ func (m Model) importView(cw, maxH int) string {
 	}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n")) + lipgloss.Height(strings.Join(tail, "\n"))
-		body = scrollWindow(t, body, s.cursor, maxH-fixed, cw)
+		body = scrollWindow(body, s.cursor, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	lines = append(lines, tail...)
@@ -528,9 +650,7 @@ func (m Model) importView(cw, maxH int) string {
 func (m Model) previewView(cw int) string {
 	t := m.theme
 	s := m.imp
-	name, right := spread("import "+s.st.Bank, plural(len(s.st.Txns), "transaction", "transactions"), cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right)}
-	lines = append(lines, t.Muted.Render(truncate(filepath.Base(s.file), cw)), "")
+	lines := []string{t.Muted.Render(truncate(filepath.Base(s.file), cw)), ""}
 
 	switch c := s.st.Check; {
 	case !c.Done:
@@ -556,7 +676,7 @@ func (m Model) previewView(cw int) string {
 		}
 		line := func(label string, amount money.Amount, style lipgloss.Style) string {
 			a := amount.Lei()
-			return style.Render(padRight("  "+label, cw-lipgloss.Width(a))) + t.Amount.Render(a)
+			return style.Render("  ") + leaderRow(t, label, style, a, t.Amount, max(1, cw-2))
 		}
 		counted := func(kind model.Kind) func(importRow) bool {
 			return func(r importRow) bool { return r.txn.Kind == kind && r.category != model.Transfers }
@@ -579,6 +699,10 @@ func (m Model) previewView(cw int) string {
 		if n := im.count(func(r importRow) bool { return r.category == model.Transfers }); n > 0 {
 			parts = append(parts, plural(n, "transfer", "transfers")+", not counted")
 		}
+		if n := im.count(func(r importRow) bool { return r.moved(im.key) }); n > 0 {
+			parts = append(parts, itoa(n)+" booked in "+im.key.Prev().Month.String()+" "+
+				map[bool]string{true: "counts", false: "count"}[n == 1]+" here")
+		}
 		if n := im.count(func(r importRow) bool { return r.match != nil }); n > 0 {
 			parts = append(parts, plural(n, "looks", "look")+" like a forecast entry")
 		}
@@ -593,10 +717,12 @@ func (m Model) previewView(cw int) string {
 	lines = append(lines, "")
 	if s.newCount() == 0 {
 		lines = append(lines, wrap(t.Muted, cw, "Everything in this file is already in your budget."))
-	} else if n := len(s.pairs()); n > 0 {
+	} else if n := len(s.pairs()); n > 0 && s.allMatched() {
 		lines = append(lines, wrap(t.Muted, cw, "Press enter to choose whether "+
 			map[bool]string{true: "the row that looks", false: "the " + itoa(n) + " rows that look"}[n == 1]+
 			" like a forecast entry should replace it. Nothing is saved before that."))
+	} else if n > 0 {
+		lines = append(lines, wrap(t.Muted, cw, "Press enter to check the rows that look like a forecast entry or count for another month. Nothing is saved before that."))
 	} else {
 		lines = append(lines, wrap(t.Muted, cw, "Nothing is saved until you press enter. The bank file itself is not copied."))
 	}
@@ -609,10 +735,9 @@ func (m Model) matchesView(cw, maxH int) string {
 	t := m.theme
 	s := m.imp
 	pairs := s.pairs()
-	name, right := spread("already planned", plural(len(pairs), "match", "matches"), cw)
-	lines := []string{t.Title.Render(name) + t.Month.Render(right), ""}
-	lines = append(lines, wrap(t.Muted, cw,
-		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan, in its category, so the larger of the two counts. Unrelated adds the row on its own."), "")
+	lines := []string{wrap(t.Muted, cw,
+		"These bank rows look like entries you planned. Replace takes the bank's amount and date and keeps your label, category and recurring flag. Keep both adds the row next to the plan, in its category, so the larger of the two counts. Unrelated adds the row on its own."),
+		wrap(t.Muted, cw, "n counts a row for the month after its date, as a salary paid early, and does so for that payee from then on; n again moves it back."), ""}
 
 	amtW := min(amountCol, max(6, cw-4-6))
 	choiceW := len("keep both") + 2
@@ -627,27 +752,44 @@ func (m Model) matchesView(cw, maxH int) string {
 			body = append(body, t.Section.Render(strings.ToUpper(im.key.Label())))
 			lastMonth = p.month
 		}
-		choice, cstyle := r.choice.String(), t.Positive
-		switch r.choice {
-		case pairKeep:
-			cstyle = t.Warning
-		case pairApart:
-			cstyle = t.Muted
+		when := r.txn.Date[8:]
+		if r.moved(im.key) {
+			when += " " + r.from.Month.String()[:3]
 		}
-		plan := padRight(truncate(r.match.Label, labelW-1), labelW) + padLeft(r.match.Amount.String(), amtW)
-		why := "same amount"
-		switch r.reason {
-		case model.MatchLinked:
-			why = "replaced it before"
-		case model.MatchClose:
-			why = "close amount"
+		var plan, choice, why string
+		cstyle := t.Positive
+		if r.match != nil {
+			choice = r.choice.String()
+			switch r.choice {
+			case pairKeep:
+				cstyle = t.Warning
+			case pairApart:
+				cstyle = t.Muted
+			}
+			plan = padRight(truncate(r.match.Label, labelW-1), labelW) + padLeft(r.match.Amount.String(), amtW)
+			why = "same amount"
+			switch r.reason {
+			case model.MatchLinked:
+				why = "replaced it before"
+			case model.MatchClose:
+				why = "close amount"
+			}
+		} else {
+			// Nothing planned: the row is here because it counts for this
+			// month although the bank booked it in the one before.
+			choice, cstyle = "moved", t.Warning
+			plan = padRight(truncate(r.txn.Label, labelW-1), labelW) + padLeft("", amtW)
+			why = "counts for " + im.key.Month.String()
 		}
-		bankLine := "  ↳ " + r.txn.Date[8:] + " " + r.txn.Label + " · " + why
+		bankLine := "  ↳ " + when + " " + r.txn.Label + " · " + why
+		if r.match == nil {
+			bankLine = "  ↳ " + when + " · " + why
+		}
 		bank := padRight(truncate(bankLine, labelW-1), labelW) + padLeft(r.txn.Amount.String(), amtW)
 		if i == s.matchCursor {
 			cursorLine = len(body)
 			body = append(body,
-				t.Selected.Bold(true).Render(padRight("› "+plan+padLeft(choice, choiceW), cw)),
+				t.Selected.Bold(true).Render(padRight("  "+plan+padLeft(choice, choiceW), cw)),
 				t.Selected.Render(padRight("  "+bank, cw)))
 			continue
 		}
@@ -655,9 +797,12 @@ func (m Model) matchesView(cw, maxH int) string {
 			t.Label.Render("  "+plan)+cstyle.Render(padLeft(choice, choiceW)),
 			t.Muted.Render(padRight("  "+bank, cw)))
 	}
+	if len(pairs) == 0 {
+		body = append(body, t.Muted.Render("  Nothing left to check. Press enter to import."))
+	}
 	if maxH > 0 {
 		fixed := lipgloss.Height(strings.Join(lines, "\n"))
-		body = scrollWindow(t, body, cursorLine, maxH-fixed, cw)
+		body = scrollWindow(body, cursorLine, maxH-fixed)
 	}
 	lines = append(lines, body...)
 	return strings.Join(lines, "\n")
