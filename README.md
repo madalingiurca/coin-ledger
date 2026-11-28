@@ -5,9 +5,14 @@ to spend, import your ING and Revolut statements as the month goes, and see what
 you have spent against the plan and what is projected to be left.
 
 ```bash
-go build -o ~/bin/budget .
+just install   # tag the next version and put budget in ~/.local/bin
 budget
 ```
+
+`just build`, `just run` and `just test` do what they say, and plain `just` lists the
+rest (install it with `brew install just`). `just install` tags the next version
+(`minor` or `major` to bump those) and installs the binary into `~/.local/bin`; it asks
+first when you are not on `main` or have uncommitted changes.
 
 No arguments, no flags. Everything happens on screen, and `?` lists every key: type
 to filter, `enter` to run one. The ones you need most:
