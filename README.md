@@ -1,4 +1,4 @@
-# budget
+# Coin Ledger
 
 A monthly budget you keep in the terminal. Plan what comes in and what you expect
 to spend, import your ING and Revolut statements as the month goes, and see what
@@ -9,60 +9,45 @@ just install   # tag the next version and put budget in ~/.local/bin
 budget
 ```
 
-[just](https://github.com/casey/just) (`brew install just`) runs the recipes in the
-justfile: `just build` builds `./budget`, `just run` runs it from source, `just test`
-and `just check` test it, and `just` lists them all. `just install` bumps the patch
-version (`just install minor` or `major` for the others), tags it, and installs the
-binary into `~/.local/bin`, or `$BUDGET_INSTALL_DIR` when set. It warns and asks
-first when you are not on `main` or have uncommitted changes. The version shows at
-the bottom of the `?` menu.
+`just build`, `just run` and `just test` do what they say, and plain `just` lists the
+rest (install it with `brew install just`). `just install` tags the next version
+(`minor` or `major` to bump those) and installs the binary into `~/.local/bin`; it asks
+first when you are not on `main` or have uncommitted changes.
 
-It takes no arguments and no flags. Everything happens on screen:
+No arguments, no flags. Everything happens on screen, and `?` lists every key: type
+to filter, `enter` to run one. The ones you need most:
 
 | Key | |
 |---|---|
-| `a` / `i` / `x` | add (to the section under the cursor / income / expense) |
-| `e`, `enter` | edit; on a category header, `e` renames the category everywhere and `enter` or `space` unfolds or folds it (categories start folded) |
-| `→` / `←` (or `l` / `h`) | unfold a category (again to step into it) / fold the category the cursor is in |
-| `=` / `-` | unfold / fold every category |
-| `d` | delete |
+| `a` / `e` / `d` | add, edit, delete |
+| `c` | categorise an expense, or every expense from its payee |
+| `space` then `c` | mark several expenses and categorise them together |
 | `r` | carry the entry into future months (`↻`) |
-| `c` | put an expense in a category, and optionally every expense from its payee; the cursor stays in the list you are working through |
-| `b` | link a refund to the expenses it pays back (or an expense to its refunds); on a category header, expect its expenses to be paid back |
-| `space` | mark expenses, then `c` files them all in one category; `esc` clears the marks |
-| `tab` / `shift+tab` | next / previous pane: income, To categorise, expenses; each pane keeps the row you left it on |
-| `s` / `S` | next / previous statistics beside the month: by category, by label, largest expenses, by week, income sources, against last month |
-| `u` | payees that still have no category; `→` on one files its transactions one by one |
+| `b` | link a refund to the expenses it pays back |
 | `>` / `<` | move the entry to the next / previous month |
+| `tab` / `shift+tab` | next / previous pane |
+| `←` / `→` | fold / unfold a category; `-` / `=` for all of them |
+| `s` | cycle the statistics beside the month |
+| `[` / `]`, `t` | previous / next month, back to this month |
+| `1`–`4` | month, history, uncategorised payees, import |
 | `I` | import a bank statement |
-| `[` / `]` (or `p` / `n`), `t` | previous / next month, back to this month |
-| `H` | history |
-| `1`–`4` | jump to month, history, uncategorised payees, import |
-| `?` | every key, filterable; `enter` runs one |
 
-**Import.** Export the statement as CSV (ING: the *Extras de cont* CSV; Revolut: the
-account statement CSV, one per currency account), press `I`, pick the file. The
-preview shows what goes into which month and whether it matches the bank's balance;
-nothing is written until you confirm. Bank rows that look like something you
-planned, such as the mortgage, are offered to replace the planned entry. A salary
-paid early, on the 27th for the 1st, can be counted for next month with `n`, and
-the payee's late rows go there by themselves from then on. Importing the same file
-again adds nothing.
+**Import.** Export the statement as CSV (ING: *Extras de cont*; Revolut: the account
+statement, one per currency), press `I` and pick the file. The preview shows what goes
+into which month and whether it matches the bank's balance; nothing is written until
+you confirm. Rows that look like something you planned, such as the mortgage, can
+replace the plan, and an early salary can count for next month with `n`. Importing
+the same file twice adds nothing.
 
-**Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows,
-in every month and on every later import. Expenses still without a category wait in
-their own To categorise pane, beside the month on a wide terminal. Money moving between your own ING and
-Revolut accounts is filed under Transfers and not counted.
+**Categories.** Categorise one Bolt ride as Transport and every Bolt ride follows, in
+every month and on every later import. Money moving between your own ING and Revolut
+accounts is a Transfer and not counted.
 
-**Reimbursements.** Paid for something you get back later, like a team lunch your
-employer refunds? Press `b` on the refund and tick the expense: neither counts any more,
-in the same month or across months, and a partial refund leaves the difference counted.
-Mark a category as paid back later (`b` on its header) to see which of its expenses are
-still waiting for their money.
+**Reimbursements.** Press `b` on a refund and tick the expenses it pays back: they stop
+counting, and a partial refund leaves the difference counted.
 
-Months are stored one JSON file each in `~/.budget`, or in `$BUDGET_HOME` when set,
-next to `categories.json`. The files are plain and hand-editable; writes are atomic
-and every change saves immediately. A file that cannot be parsed is shown read-only
-and never overwritten.
+Months are plain JSON files in `~/.budget` (or `$BUDGET_HOME`), one per month, next to
+`categories.json`. Every change saves at once, and a file that cannot be read is shown
+but never overwritten.
 
 See [DESIGN.md](DESIGN.md) for how it works.
