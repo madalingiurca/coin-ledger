@@ -11,8 +11,11 @@ budget
 
 `just build`, `just run` and `just test` do what they say, and plain `just` lists the
 rest (install it with `brew install just`). `just install` tags the next version
-(`minor` or `major` to bump those) and installs the binary into `~/.local/bin`; it asks
-first when you are not on `main` or have uncommitted changes.
+and installs the binary into `~/.local/bin`; it asks first when you are not on `main`
+or have uncommitted changes. The version follows [conventional
+commits](https://www.conventionalcommits.org) since the last tag: `feat:` bumps minor,
+`feat!:` or a `BREAKING CHANGE:` footer bumps major (minor before 1.0), anything else
+patch. `just next-version` shows what it would be, and `just install major` forces a bump.
 
 No arguments, no flags. Everything happens on screen, and `?` lists every key: type
 to filter, `enter` to run one. The ones you need most:

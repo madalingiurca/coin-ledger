@@ -11,7 +11,7 @@ what you have spent against what you planned and what is projected to be left.
 | Stack | Go + Bubble Tea v2 / Bubbles v2 / Lipgloss v2 |
 | Storage | One JSON file per month under `~/.budget/`, plus `categories.json` |
 | Interface | Pure TUI. No subcommands, no flags. |
-| Version | Git tag `vX.Y.Z`, embedded at build time with `-ldflags -X main.version`; shown in the `?` menu. `just install` tags and installs. |
+| Version | Git tag `vX.Y.Z`, embedded at build time with `-ldflags -X main.version`; shown in the `?` menu. `just install` picks the bump from conventional commits, tags and installs. |
 | Model | Income and expense entries. Typed entries are the **forecast**; imported ones the **actual**. |
 | Categories | Expenses only. Payee rules file bank rows automatically. |
 | Import | ING "Extras de cont" CSV and Revolut account statement CSV, picked in an in-app file browser |
@@ -318,9 +318,14 @@ Nothing below `ui` imports Bubble Tea, and the UI itself is tested headlessly by
 key presses into `Update` and reading the rendered frame (`go test ./...`).
 `go test ./internal/ui -run TestPreview -v` prints every screen for eyeballing.
 
-The justfile holds the everyday commands. `just install` picks the next version from
-the highest `v*` tag (`v0.1.0` when there is none; HEAD already tagged is reinstalled
-as it is), runs the tests, builds into a temporary file beside the target, tags HEAD,
+The justfile holds the everyday commands. `just install` asks `just next-version` for
+the version: with no `v*` tag it is `v0.1.0`, and HEAD already tagged is reinstalled as
+it is. Otherwise it reads every commit message since the highest tag as a conventional
+commit: `type!:` or a `BREAKING CHANGE:` footer bumps major, `feat:` minor, and
+anything else, including messages that are not conventional, patch. Before 1.0 a
+breaking change bumps minor, so 1.0.0 only comes from `just install major`. Squash
+merges keep the PR title as the commit subject, so the PR title is what counts. It then
+runs the tests, builds into a temporary file beside the target, tags HEAD,
 and moves the binary into place. Tags stay local until pushed.
 
 ## Edge cases
