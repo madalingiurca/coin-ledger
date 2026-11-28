@@ -45,14 +45,63 @@ version:
 clean:
     rm -f {{ bin }}
 
-# Tag a new version (bump: patch, minor or major) and install it into install_dir
-install bump="patch":
+# Print the version `just install` would tag next, and why
+next-version bump="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # HEAD already carrying a version is reinstalled as it is.
+    if current=$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null); then
+        echo "HEAD is already $current; reinstalling it." >&2
+        echo "$current"; exit 0
+    fi
+    last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+    if [ -z "$last" ]; then
+        echo "No version tag yet; starting at v0.1.0." >&2
+        echo v0.1.0; exit 0
+    fi
+    IFS=. read -r major minor patch <<< "${last#v}"
+    patch=${patch%%[-+]*}
+
+    bump="{{ bump }}"
+    why="asked for"
+    if [ -z "$bump" ]; then
+        # Conventional commits since the last tag: a breaking change (type! or a
+        # BREAKING CHANGE footer) bumps major, feat bumps minor, anything else patch.
+        breaking='^[a-zA-Z]+(\([^)]*\))?!:'
+        feature='^feat(\([^)]*\))?:'
+        bump=patch; n=0; feats=0; breaks=0
+        while IFS= read -r -d '' msg; do
+            n=$((n + 1))
+            subject=${msg%%$'\n'*}
+            if [[ $subject =~ $breaking ]] || grep -qE '^BREAKING[ -]CHANGE:' <<< "$msg"; then
+                breaks=$((breaks + 1)); bump=major
+            elif [[ $subject =~ $feature ]]; then
+                feats=$((feats + 1)); [ "$bump" = major ] || bump=minor
+            fi
+        done < <(git log -z --format=%B "$last..HEAD")
+        why="$n commits since $last: $breaks breaking, $feats feat, $((n - breaks - feats)) other"
+        # Before 1.0 a breaking change bumps minor; 1.0.0 is only ever asked for.
+        if [ "$bump" = major ] && [ "$major" = 0 ]; then
+            bump=minor; why="$why; breaking changes bump minor before 1.0"
+        fi
+    fi
+    case "$bump" in
+        major) next="v$((major + 1)).0.0" ;;
+        minor) next="v$major.$((minor + 1)).0" ;;
+        patch) next="v$major.$minor.$((patch + 1))" ;;
+        *) echo "bump must be patch, minor or major, not $bump" >&2; exit 1 ;;
+    esac
+    echo "Next version: $next ($bump: $why)" >&2
+    echo "$next"
+
+# Tag the next version (from conventional commits, or bump: patch, minor or major) and install it
+install bump="":
     #!/usr/bin/env bash
     set -euo pipefail
     yellow=$'\033[33m'; green=$'\033[32m'; off=$'\033[0m'
     ask() { read -r -p "$1 [y/N] " ok; [[ "$ok" =~ ^[yY]$ ]] || { echo "Cancelled, nothing installed."; exit 1; }; }
 
-    case "{{ bump }}" in patch|minor|major) ;; *) echo "bump must be patch, minor or major, not {{ bump }}"; exit 1 ;; esac
+    case "{{ bump }}" in ""|patch|minor|major) ;; *) echo "bump must be patch, minor or major, not {{ bump }}"; exit 1 ;; esac
 
     branch=$(git branch --show-current)
     if [ "$branch" != "main" ]; then
@@ -66,26 +115,7 @@ install bump="patch":
         dirty="-dirty"
     fi
 
-    # Reinstall when HEAD already carries a version, otherwise bump the highest one.
-    if current=$(git describe --tags --exact-match --match 'v[0-9]*' HEAD 2>/dev/null); then
-        next=$current
-        echo "HEAD is already $next; reinstalling it."
-    else
-        last=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
-        if [ -z "$last" ]; then
-            next=v0.1.0
-        else
-            IFS=. read -r major minor patch <<< "${last#v}"
-            patch=${patch%%[-+]*}
-            case "{{ bump }}" in
-                major) next="v$((major + 1)).0.0" ;;
-                minor) next="v$major.$((minor + 1)).0" ;;
-                patch) next="v$major.$minor.$((patch + 1))" ;;
-            esac
-        fi
-        echo "Next version: $next (last was ${last:-none})"
-    fi
-
+    next=$({{ just_executable() }} --justfile "{{ justfile() }}" next-version {{ bump }})
     go test ./...
     mkdir -p "{{ install_dir }}"
     tmp="{{ install_dir }}/.{{ bin }}.tmp"
