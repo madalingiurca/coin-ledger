@@ -72,6 +72,9 @@ type importMonth struct {
 	loadErr error
 	add     []importRow
 	dupes   int
+	// deleted are rows booked in this month that were imported once and
+	// then deleted. They are left out unless the user brings them back.
+	deleted []importer.Txn
 }
 
 type importRow struct {
@@ -82,6 +85,9 @@ type importRow struct {
 	// fell on a weekend. ruled says a remembered payee rule moved it there.
 	from  model.Key
 	ruled bool
+	// restored says the row was deleted after an earlier import and the user
+	// asked for it back.
+	restored bool
 	// match is a forecast entry this row looks like the actual for; choice
 	// is what the user wants done about it.
 	match  *model.Entry
@@ -216,6 +222,8 @@ func (m Model) importKey(key string) (tea.Model, tea.Cmd) {
 		switch key {
 		case "esc", "backspace", "left":
 			s.stage, s.pickErr = stageBrowse, nil
+		case "r":
+			m.restoreDeleted()
 		case "enter", "y":
 			if len(s.pairs()) > 0 {
 				s.stage, s.matchCursor = stageMatches, 0
@@ -319,20 +327,16 @@ func (m *Model) previewImport(path string) {
 		}
 		k := model.KeyOf(t)
 		home := use(k)
-		if m.alreadyImported(txn.Key, k) {
+		switch m.alreadyImported(txn.Key, k) {
+		case rowPresent:
 			home.dupes++
 			continue
+		case rowDeleted:
+			home.deleted = append(home.deleted, txn)
+			continue
 		}
-		row := importRow{txn: txn, from: k}
-		if c, ok := m.rules.CategoryFor(txn.Payee); ok && (txn.Kind == model.Expense || c == model.Transfers) {
-			row.category = c
-		}
-		target := home
-		if row.category != model.Transfers && m.rules.CountsForNextMonth(txn.Payee, t.Day()) {
-			if next := use(k.Next()); next.loadErr == nil {
-				target, row.ruled = next, true
-			}
-		}
+		row, target := m.placeRow(txn, k)
+		use(target.key)
 		target.add = append(target.add, row)
 	}
 	slices.SortFunc(keys, func(a, b model.Key) int { return a.Compare(b) })
@@ -362,15 +366,85 @@ func (m *Model) importMonth(k model.Key) *importMonth {
 	return im
 }
 
-// alreadyImported reports whether a bank row booked in month k is in the
-// budget: in k, or moved to the month before or after it.
-func (m *Model) alreadyImported(key string, k model.Key) bool {
-	for _, near := range []model.Key{k, k.Prev(), k.Next()} {
-		if im := m.importMonth(near); im.month != nil && im.month.HasKey(key) {
-			return true
+// placeRow works out a new bank row's category and the month it counts for:
+// the month it was booked in, k, or the one after when a payee rule says so.
+func (m *Model) placeRow(txn importer.Txn, k model.Key) (importRow, *importMonth) {
+	row := importRow{txn: txn, from: k}
+	if c, ok := m.rules.CategoryFor(txn.Payee); ok && (txn.Kind == model.Expense || c == model.Transfers) {
+		row.category = c
+	}
+	target := m.importMonth(k)
+	if row.category != model.Transfers && m.rules.CountsForNextMonth(txn.Payee, day(txn.Date)) {
+		if next := m.importMonth(k.Next()); next.loadErr == nil {
+			target, row.ruled = next, true
 		}
 	}
-	return false
+	return row, target
+}
+
+// rowState is what the budget already knows of a bank row.
+type rowState int
+
+const (
+	rowNew rowState = iota
+	// rowPresent: the row is an entry already.
+	rowPresent
+	// rowDeleted: the row was imported and then deleted.
+	rowDeleted
+)
+
+// alreadyImported reports whether a bank row booked in month k is in the
+// budget, in k or moved to the month before or after it, or was deleted from
+// one of those months after an earlier import.
+func (m *Model) alreadyImported(key string, k model.Key) rowState {
+	state := rowNew
+	for _, near := range []model.Key{k, k.Prev(), k.Next()} {
+		im := m.importMonth(near)
+		switch {
+		case im.month == nil:
+		case im.month.Contains(key):
+			return rowPresent
+		case im.month.Deleted(key):
+			state = rowDeleted
+		}
+	}
+	return state
+}
+
+// deletedCount is how many rows in the file were deleted after an earlier
+// import and are left out.
+func (s *importState) deletedCount() int {
+	n := 0
+	for _, im := range s.months {
+		if im.loadErr == nil {
+			n += len(im.deleted)
+		}
+	}
+	return n
+}
+
+// restoreDeleted brings back the rows that were deleted after an earlier
+// import: they are placed and matched against the plan like new rows.
+func (m *Model) restoreDeleted() {
+	s := m.imp
+	for _, im := range slices.Clone(s.months) {
+		if im.loadErr != nil {
+			continue
+		}
+		for _, txn := range im.deleted {
+			row, target := m.placeRow(txn, im.key)
+			row.restored = true
+			target.add = append(target.add, row)
+			if !slices.Contains(s.months, target) {
+				s.months = append(s.months, target)
+			}
+		}
+		im.deleted = nil
+	}
+	slices.SortFunc(s.months, func(a, b *importMonth) int { return a.key.Compare(b.key) })
+	for _, im := range s.months {
+		m.matchForecasts(im, s.st.Source)
+	}
 }
 
 // toggleNextMonth moves a row in the review to the month after its date, or
@@ -490,6 +564,9 @@ func (m *Model) commitImport() {
 			}
 			imp := r.txn.Imported(s.st.Source)
 			imp.Category, imp.Auto = r.category, r.category != ""
+			if r.restored {
+				im.month.Undelete(imp.Key)
+			}
 			if r.match != nil && r.choice == pairKeep && imp.Category == "" && r.txn.Kind == model.Expense {
 				imp.Category, imp.Auto = r.match.Category, false
 			}
@@ -671,7 +748,14 @@ func (m Model) previewView(cw int) string {
 			continue
 		}
 		if len(im.add) == 0 {
-			lines = append(lines, t.Muted.Render("  nothing new · "+plural(im.dupes, "row", "rows")+" already imported"))
+			var parts []string
+			if im.dupes > 0 || len(im.deleted) == 0 {
+				parts = append(parts, plural(im.dupes, "row", "rows")+" already imported")
+			}
+			if n := len(im.deleted); n > 0 {
+				parts = append(parts, plural(n, "row", "rows")+" you deleted")
+			}
+			lines = append(lines, wrap(t.Muted.PaddingLeft(2), cw, "nothing new · "+strings.Join(parts, " · ")))
 			continue
 		}
 		line := func(label string, amount money.Amount, style lipgloss.Style) string {
@@ -706,8 +790,14 @@ func (m Model) previewView(cw int) string {
 		if n := im.count(func(r importRow) bool { return r.match != nil }); n > 0 {
 			parts = append(parts, plural(n, "looks", "look")+" like a forecast entry")
 		}
+		if n := im.count(func(r importRow) bool { return r.restored }); n > 0 {
+			parts = append(parts, itoa(n)+" deleted before, brought back")
+		}
 		if im.dupes > 0 {
 			parts = append(parts, itoa(im.dupes)+" already imported")
+		}
+		if n := len(im.deleted); n > 0 {
+			parts = append(parts, itoa(n)+" you deleted")
 		}
 		if len(parts) > 0 {
 			lines = append(lines, wrap(t.Muted.PaddingLeft(2), cw, strings.Join(parts, " · ")))
@@ -715,6 +805,15 @@ func (m Model) previewView(cw int) string {
 	}
 
 	lines = append(lines, "")
+	if n := s.deletedCount(); n > 0 {
+		lines = append(lines, wrap(t.Warning, cw, map[bool]string{
+			true:  "1 row in this file was deleted after an earlier import, so it is left out. Press r to import it again.",
+			false: itoa(n) + " rows in this file were deleted after an earlier import, so they are left out. Press r to import them again.",
+		}[n == 1]))
+		if s.newCount() == 0 {
+			return strings.Join(lines, "\n")
+		}
+	}
 	if s.newCount() == 0 {
 		lines = append(lines, wrap(t.Muted, cw, "Everything in this file is already in your budget."))
 	} else if n := len(s.pairs()); n > 0 && s.allMatched() {
